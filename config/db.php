@@ -31,18 +31,39 @@ $username = (string)($localConfig["username"] ?? ($readEnv("DB_USER") ?: "root")
 $password = (string)($localConfig["password"] ?? $readEnv("DB_PASSWORD"));
 $database = (string)($localConfig["name"] ?? ($readEnv("DB_NAME") ?: "school_clearance_db"));
 
+// Where do the credentials come from? (shown on the error page to speed up setup)
+if (!empty($localConfig["name"])) {
+    $credentialSource = "config/db.local.php";
+} elseif ($readEnv("DB_NAME") !== "" || $readEnv("DB_USER") !== "") {
+    $credentialSource = "environment variables";
+} else {
+    $credentialSource = "built-in defaults (no config/db.local.php and no DB_* variables found)";
+}
+$maskUser = function (string $value): string {
+    if (strlen($value) <= 4) return $value;
+    return substr($value, 0, 2) . str_repeat("*", max(2, strlen($value) - 4)) . substr($value, -2);
+};
+$connectionFailurePage = function (string $reason) use ($credentialSource, $host, $username, $database, $maskUser): void {
+    error_log("Clearance DB connection failed [$credentialSource]: " . $reason);
+    http_response_code(500);
+    echo "<h3>Database connection failed</h3>";
+    echo "<p>Credential source: <code>" . htmlspecialchars($credentialSource, ENT_QUOTES, "UTF-8") . "</code><br>";
+    echo "Host: <code>" . htmlspecialchars($host, ENT_QUOTES, "UTF-8") . "</code> &middot; ";
+    echo "User: <code>" . htmlspecialchars($maskUser($username), ENT_QUOTES, "UTF-8") . "</code> &middot; ";
+    echo "Database: <code>" . htmlspecialchars($database, ENT_QUOTES, "UTF-8") . "</code></p>";
+    echo "<p>Fix: create <code>public_html/config/db.local.php</code> with the database name, username and password from hPanel &rarr; Databases &rarr; Management, and import <code>database/school_clearance_db.sql</code> in phpMyAdmin.</p>";
+};
+
 try {
     $conn = new mysqli($host, $username, $password, $database);
 } catch (Throwable $connectionError) {
-    error_log("Clearance DB connection failed: " . $connectionError->getMessage());
-    http_response_code(500);
-    die("<h3>Database connection failed</h3><p>Check <code>config/db.local.php</code> (or the DB_HOST / DB_USER / DB_PASSWORD / DB_NAME environment variables).</p>");
+    $connectionFailurePage($connectionError->getMessage());
+    exit;
 }
 
 if ($conn->connect_error) {
-    error_log("Clearance DB connection failed: " . $conn->connect_error);
-    http_response_code(500);
-    die("<h3>Database connection failed</h3><p>Check <code>config/db.local.php</code> (or the DB_HOST / DB_USER / DB_PASSWORD / DB_NAME environment variables).</p>");
+    $connectionFailurePage($conn->connect_error);
+    exit;
 }
 
 $conn->set_charset("utf8mb4");
