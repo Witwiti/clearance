@@ -45,12 +45,15 @@ $maskUser = function (string $value): string {
 };
 $connectionFailurePage = function (string $reason) use ($credentialSource, $host, $username, $database, $maskUser): void {
     error_log("Clearance DB connection failed [$credentialSource]: " . $reason);
+    // Hide the real user name inside the driver message.
+    $safeReason = str_replace($username, $maskUser($username), $reason);
     http_response_code(500);
     echo "<h3>Database connection failed</h3>";
     echo "<p>Credential source: <code>" . htmlspecialchars($credentialSource, ENT_QUOTES, "UTF-8") . "</code><br>";
     echo "Host: <code>" . htmlspecialchars($host, ENT_QUOTES, "UTF-8") . "</code> &middot; ";
     echo "User: <code>" . htmlspecialchars($maskUser($username), ENT_QUOTES, "UTF-8") . "</code> &middot; ";
     echo "Database: <code>" . htmlspecialchars($database, ENT_QUOTES, "UTF-8") . "</code></p>";
+    echo "<p>MySQL said: <code>" . htmlspecialchars($safeReason, ENT_QUOTES, "UTF-8") . "</code></p>";
     echo "<p>Fix: create <code>public_html/config/db.local.php</code> with the database name, username and password from hPanel &rarr; Databases &rarr; Management, and import <code>database/school_clearance_db.sql</code> in phpMyAdmin.</p>";
 };
 
