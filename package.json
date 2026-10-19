@@ -1,0 +1,11 @@
+{
+  "name": "student-clearance-system",
+  "version": "1.0.2",
+  "private": true,
+  "description": "Student Clearance Management System (Christ The King College De Maranding, Inc.). This is a PHP + MySQL application - the file only exists so hosting platforms that require a package.json can run the deployment. There is no Node.js code and no build step.",
+  "license": "MIT",
+  "scripts": {
+    "build": "echo \"No build step required - this is a PHP + MySQL application. Point the web server document root at this folder and open admin/login.php.\"",
+    "start": "echo \"This project runs on PHP (see DEPLOY.md), not on a Node.js server.\""
+  }
+}

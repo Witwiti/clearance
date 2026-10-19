@@ -12,6 +12,7 @@ A role-based PHP/MySQLi web portal for Christ The King College De Maranding, Inc
 - Images: `assets/images/system_logo.jpg` (brand/avatar fallback), `ckcm_logo.jpg` (org switcher), `ckcm transparent.png` (printable form header), `ckcm_print_logo.png` (downscaled seal used by the PDF export), `school-logo.svg`
 - Uploads: `assets/uploads/profiles/user_<24 hex>.<jpg|png|webp>`
 - Server-side PDF: `lib/fpdf.php` (FPDF 1.9, MIT, vendored — no Composer) + `lib/clearance_form_pdf.php`; shared form data helpers in `config/clearance_form.php`
+- `package.json`: **no-op placeholder** (no dependencies, no Node.js code) so hosting platforms that demand a `package.json` (e.g. Hostinger's deployment wizard) accept the repository and import it as a PHP site. The application itself is pure PHP.
 
 ## 2. Setup
 

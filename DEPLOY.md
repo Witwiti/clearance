@@ -1,9 +1,35 @@
 # Deploying on Hostinger (hPanel)
 
 This project is a **PHP + MySQL** application. Hostinger's *Deploy* button that asks for a
-`package.json` is for **Node.js / static sites** - it would upload the files without running
-PHP, so the app would not work there. Do not add a `package.json`; use one of the upload
-methods in step 3 instead.
+`package.json` is the **Node.js / static-site** import flow - a PHP app must be served by
+Hostinger's PHP runtime (LiteSpeed), not by their static/Node server.
+
+The repository now contains a **no-op `package.json`** (no dependencies, `npm run build` only
+prints a message) so the Hostinger wizard accepts the repository and performs a **full import**
+instead of the static fallback. The app itself is still 100% PHP - no Node.js is required and
+nothing in the repository depends on npm.
+
+**Do not click "Deploy as static"** - that publishes the files without executing PHP, so every
+`.php` page would be served as plain text.
+
+---
+
+## 0. Hostinger deployment wizard (the screen in the screenshot)
+
+1. Select the repository **Witwiti/clearance** → the warning disappears (the `package.json` is
+   now present) and the wizard offers the full import.
+2. **Build command**: `npm run build` (it only echoes a message) - or leave it empty if the
+   field allows.
+3. **Output / root directory**: the repository root (`.`), so that `index.php`, `admin/`,
+   `student/`, `assets/`, `lib/`, `config/` end up in the domain's document root.
+   Do **not** point it to `dist/` or `build/` - those folders do not exist.
+4. Finish the wizard. The files are cloned into `public_html` (or the folder you selected)
+   and Hostinger's PHP runtime serves them.
+
+Then continue with steps 2, 4 and 5 below (database, credentials, permissions).
+
+**Alternative (simplest):** hPanel → **Websites → Manage → Git** → connect the repository with
+an empty build command. It clones the repo straight into the document root - no npm involved.
 
 ---
 
@@ -120,7 +146,7 @@ cd public_html && git pull origin main
 
 | Symptom | Fix |
 | --- | --- |
-| *"This repository is missing a package.json file"* | Expected - that dialog is for Node/static sites. Ignore it and use step 3 (Option A/B/C). |
+| *"This repository is missing a package.json file"* | Fixed: the repository now ships a no-op `package.json`, so the wizard offers the full import. If you still see it, pull the latest `main`. Never use "Deploy as static" (PHP would not run). |
 | *"Database connection failed"* | Wrong values in `config/db.local.php` (host is `localhost`, the user name is prefixed with your hPanel account id). Check the phpMyAdmin login works with the same credentials. |
 | White page / 500 error | Wrong PHP version: set PHP 8.1+ in hPanel, then check the `error_log` in *Websites → Manage → Advanced → Error Log*. |
 | Landing page loads but login fails | The database is empty: import `database/school_clearance_db.sql` again (step 2). |
