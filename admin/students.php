@@ -27,6 +27,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $editStudent = compact("studentId", "studentNumber", "firstName", "middleName", "lastName", "course", "yearLevel", "email", "status");
         if ($studentNumber === "" || $firstName === "" || $lastName === "") {
             $error = "Student number, first name, and last name are required.";
+        } elseif ($course === "") {
+            $error = "Course is required for student records.";
+        } elseif ($yearLevel === "") {
+            $error = "Year level is required for student records.";
         } elseif ($studentId > 0) {
             $stmt = $conn->prepare(
                 "UPDATE students SET student_number = ?, first_name = ?, middle_name = ?, last_name = ?, course = ?, year_level = ?, email = ?, status = ? WHERE student_id = ?"
@@ -144,9 +148,9 @@ require "_header.php";
             <label>First name<input name="first_name" required value="<?= e($editStudent["first_name"] ?? $editStudent["firstName"] ?? "") ?>"></label>
             <label>Middle name<input name="middle_name" value="<?= e($editStudent["middle_name"] ?? $editStudent["middleName"] ?? "") ?>"></label>
             <label>Last name<input name="last_name" required value="<?= e($editStudent["last_name"] ?? $editStudent["lastName"] ?? "") ?>"></label>
-            <label>Course<input name="course" value="<?= e($editStudent["course"] ?? "") ?>"></label>
+            <label>Course<input name="course" required value="<?= e($editStudent["course"] ?? "") ?>"></label>
             <label>Year level
-                <select name="year_level">
+                <select name="year_level" required>
                     <option value="" <?= (($editStudent["year_level"] ?? $editStudent["yearLevel"] ?? "") === "") ? "selected" : "" ?>>Select year level</option>
                     <option value="1st Year" <?= (($editStudent["year_level"] ?? $editStudent["yearLevel"] ?? "") === "1st Year") ? "selected" : "" ?>>1st Year</option>
                     <option value="2nd Year" <?= (($editStudent["year_level"] ?? $editStudent["yearLevel"] ?? "") === "2nd Year") ? "selected" : "" ?>>2nd Year</option>

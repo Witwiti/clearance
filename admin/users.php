@@ -61,6 +61,18 @@ $checkUserConflict = function (string $username, string $email, ?int $ignoreUser
     return "This email address is already in use.";
 };
 
+// Active courses (needed by the student course dropdown and the student validation).
+$courseOptions = [];
+$courseResult = $conn->query(
+    "SELECT course_name FROM courses WHERE status = 'active' ORDER BY course_name ASC"
+);
+if ($courseResult) {
+    while ($courseRow = $courseResult->fetch_assoc()) {
+        $courseOptions[] = $courseRow;
+    }
+    $courseResult->close();
+}
+
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $action = $_POST["action"] ?? "";
     $userId = (int)($_POST["user_id"] ?? 0);
@@ -102,6 +114,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $error = "Username, full name, and email are required.";
         } elseif ($role === "student" && $studentNumber === "") {
             $error = "Student number is required for student accounts.";
+        } elseif ($role === "student" && $course === "") {
+            $error = "Course is required for student accounts.";
+        } elseif ($role === "student" && $yearLevel === "") {
+            $error = "Year level is required for student accounts.";
+        } elseif ($role === "student" && !$courseOptions) {
+            $error = "There are no active courses. Add one under Courses first.";
         } elseif ($collegeDean && $collegeDeanCourse === "") {
             $error = "Select a course for the college dean.";
         } else {
@@ -279,16 +297,6 @@ if ($_SERVER["REQUEST_METHOD"] !== "POST" && isset($_GET["edit"])) {
     $stmt->close();
 }
 
-$courseResult = $conn->query(
-    "SELECT course_name FROM courses WHERE status = 'active' ORDER BY course_name ASC"
-);
-$courseOptions = [];
-if ($courseResult) {
-    while ($courseRow = $courseResult->fetch_assoc()) {
-        $courseOptions[] = $courseRow;
-    }
-}
-
 $users = $conn->query(
     "SELECT user_id, username, full_name, email, avatar_path, role, status, created_at
      FROM users ORDER BY created_at DESC"
@@ -342,6 +350,7 @@ require "_header.php";
                         <option value="" disabled>No courses available</option>
                     <?php endif; ?>
                 </select>
+                <small class="field-help">Required for student accounts.</small>
             </label>
             <label class="student-only-field">Year level
                 <select name="year_level">
@@ -351,6 +360,7 @@ require "_header.php";
                     <option value="3rd Year" <?= (($editUser["year_level"] ?? "") === "3rd Year") ? "selected" : "" ?>>3rd Year</option>
                     <option value="4th Year" <?= (($editUser["year_level"] ?? "") === "4th Year") ? "selected" : "" ?>>4th Year</option>
                 </select>
+                <small class="field-help">Required for student accounts.</small>
             </label>
             <label>Profile picture<input type="file" name="avatar" accept="image/jpeg,image/png,image/webp"><small class="field-help">JPG, PNG, or WebP up to 2 MB.</small></label>
         </div>

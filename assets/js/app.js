@@ -214,6 +214,11 @@ document.addEventListener("DOMContentLoaded", () => {
         studentFields.forEach((field) => {
             const input = field.querySelector("input");
             if (input) input.required = visible && input.name === "student_number";
+            // Course and year level are mandatory for student accounts. Keep "required"
+            // off while the field is hidden, otherwise the browser blocks the submit.
+            field.querySelectorAll("select").forEach((select) => {
+                select.required = visible;
+            });
         });
         officeFields.forEach((field) => {
             const officeRole = userRole?.value === "office";

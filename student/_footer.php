@@ -23,5 +23,5 @@
     </div>
 </div>
 
-<script src="../assets/js/app.js?v=20261028"></script><?php require_once __DIR__ . "/../config/mobile_nav.php"; render_mobile_nav("student", $activePage ?? "", $conn ?? null); ?><script>lucide.createIcons();</script>
+<script src="../assets/js/app.js?v=20261029"></script><?php require_once __DIR__ . "/../config/mobile_nav.php"; render_mobile_nav("student", $activePage ?? "", $conn ?? null); ?><script>lucide.createIcons();</script>
 </body></html>
