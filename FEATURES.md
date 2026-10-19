@@ -66,7 +66,7 @@ Project root: `C:\xampp\htdocs\clearance` · Open via `http://localhost/clearanc
 - `admin/reports.php`: summary cards (Total / Pending / Cleared / Not cleared, respecting filters except status) + detailed table (student, term, status, office progress `approved/total`, requested date; 500-row limit).
 - **Filters (server-side GET, auto-submit on change):** school year, semester, status, course, date-from/to (validated `YYYY-MM-DD`, invalid ignored, From/To auto-swapped), Include-archived checkbox, Apply/Reset, active-filter pills with per-filter remove, result count.
 - **Date UX:** calendar-icon inputs (`max=today`), presets (Today / Last 7 days / This month / Clear), client guard against From > To.
-- **Exports:** `Export Excel (CSV)` preserves current filters (UTF-8 BOM, Excel-compatible); `Print / PDF` via print CSS (nav, filters, stats hidden).
+- **Exports:** `Export Excel (CSV)` preserves current filters (UTF-8 BOM, Excel-compatible) and asks for confirmation in a floating modal first; `Print / PDF` downloads a server-generated PDF (A4 landscape, `admin/reports_pdf.php` + `lib/reports_pdf.php`) with the school header, summary strip (total/pending/cleared/not cleared) and the detail table — the same numbers the screen shows, because both share `config/reports.php`.
 - Sidebar + Dashboard quick link: Reports.
 
 ## 7. Requirement Types (master data)

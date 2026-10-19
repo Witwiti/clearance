@@ -4,14 +4,16 @@ $activePage = "reports";
 require_once "../config/auth.php";
 require_role("admin");
 require_once "../config/db.php";
+require_once "../config/reports.php";
 
-$syFilter = trim($_GET["school_year"] ?? "");
-$semFilter = trim($_GET["semester"] ?? "");
-$statusFilter = trim($_GET["status"] ?? "");
-$courseFilter = trim($_GET["course"] ?? "");
-$dateFrom = trim($_GET["date_from"] ?? "");
-$dateTo = trim($_GET["date_to"] ?? "");
-$includeArchived = isset($_GET["include_archived"]) && $_GET["include_archived"] === "1";
+$filters = reports_request_filters($_GET);
+$syFilter = $filters["school_year"];
+$semFilter = $filters["semester"];
+$statusFilter = $filters["status"];
+$courseFilter = $filters["course"];
+$dateFrom = $filters["date_from"];
+$dateTo = $filters["date_to"];
+$includeArchived = $filters["include_archived"];
 
 $flash = $_SESSION["flash_message"] ?? "";
 unset($_SESSION["flash_message"]);
@@ -56,70 +58,10 @@ $dupeExtra = 0;
 $dc = $conn->query("SELECT SUM(c-1) AS x FROM (SELECT COUNT(*) c FROM clearance_requests WHERE is_archived=0 GROUP BY student_id, school_year, semester HAVING c > 1) t");
 if ($dc) { $dupeExtra = (int)($dc->fetch_assoc()["x"] ?? 0); $dc->close(); }
 
-// Validate date inputs (YYYY-MM-DD). Invalid values are ignored instead of breaking the query.
-$isValidDate = function (string $d): bool {
-    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)) return false;
-    [$y, $m, $day] = array_map('intval', explode('-', $d));
-    return checkdate($m, $day, $y);
-};
-if ($dateFrom !== "" && !$isValidDate($dateFrom)) $dateFrom = "";
-if ($dateTo !== "" && !$isValidDate($dateTo)) $dateTo = "";
-if ($dateFrom !== "" && $dateTo !== "" && $dateFrom > $dateTo) {
-    // Swap so From is never after To.
-    [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
-}
-
-$where = [];
-$params = [];
-$types = "";
-if ($syFilter !== "") { $where[] = "cr.school_year=?"; $params[] = $syFilter; $types .= "s"; }
-if ($semFilter !== "") { $where[] = "cr.semester=?"; $params[] = $semFilter; $types .= "s"; }
-if ($statusFilter !== "" && in_array($statusFilter, ["pending","cleared","not_cleared"], true)) { $where[] = "cr.overall_status=?"; $params[] = $statusFilter; $types .= "s"; }
-if ($courseFilter !== "") { $where[] = "s.course=?"; $params[] = $courseFilter; $types .= "s"; }
-if ($dateFrom !== "") { $where[] = "DATE(cr.requested_at)>=?"; $params[] = $dateFrom; $types .= "s"; }
-if ($dateTo !== "") { $where[] = "DATE(cr.requested_at)<=?"; $params[] = $dateTo; $types .= "s"; }
-if (!$includeArchived) $where[] = "cr.is_archived=0";
-$whereSql = $where ? "WHERE " . implode(" AND ", $where) : "";
-
-// Summary counts (respect filters except status).
-$summaryWhere = [];
-$summaryParams = [];
-$summaryTypes = "";
-foreach (["school_year" => $syFilter, "semester" => $semFilter, "course" => $courseFilter] as $k => $v) { /* rebuilt below */ }
-$sw = [];
-$sp = [];
-$st = "";
-if ($syFilter !== "") { $sw[] = "cr.school_year=?"; $sp[] = $syFilter; $st .= "s"; }
-if ($semFilter !== "") { $sw[] = "cr.semester=?"; $sp[] = $semFilter; $st .= "s"; }
-if ($courseFilter !== "") { $sw[] = "s.course=?"; $sp[] = $courseFilter; $st .= "s"; }
-if ($dateFrom !== "") { $sw[] = "DATE(cr.requested_at)>=?"; $sp[] = $dateFrom; $st .= "s"; }
-if ($dateTo !== "") { $sw[] = "DATE(cr.requested_at)<=?"; $sp[] = $dateTo; $st .= "s"; }
-if (!$includeArchived) $sw[] = "cr.is_archived=0";
-$swSql = $sw ? "WHERE " . implode(" AND ", $sw) : "";
-
-$summary = ["total" => 0, "pending" => 0, "cleared" => 0, "not_cleared" => 0];
-$stmt = $conn->prepare("SELECT COUNT(*) t, SUM(cr.overall_status='pending') p, SUM(cr.overall_status='cleared') c, SUM(cr.overall_status='not_cleared') n FROM clearance_requests cr INNER JOIN students s ON s.student_id=cr.student_id $swSql");
-if ($stmt) {
-    if ($sp) $stmt->bind_param($st, ...$sp);
-    $stmt->execute();
-    $r = $stmt->get_result()->fetch_assoc();
-    $summary = ["total" => (int)($r["t"] ?? 0), "pending" => (int)($r["p"] ?? 0), "cleared" => (int)($r["c"] ?? 0), "not_cleared" => (int)($r["n"] ?? 0)];
-    $stmt->close();
-}
-
-// Detail rows.
-$sql = "SELECT cr.clearance_id, s.student_number, CONCAT(s.first_name,' ',s.last_name) AS student_name, s.course, s.year_level,
-               cr.school_year, cr.semester, cr.overall_status, cr.requested_at,
-               (SELECT COUNT(*) FROM clearance_transactions t WHERE t.clearance_id=cr.clearance_id) AS offices_total,
-               (SELECT COUNT(*) FROM clearance_transactions t WHERE t.clearance_id=cr.clearance_id AND t.status='approved') AS offices_approved
-        FROM clearance_requests cr INNER JOIN students s ON s.student_id=cr.student_id $whereSql ORDER BY cr.requested_at DESC LIMIT 500";
-$stmt = $conn->prepare($sql);
-if ($stmt) {
-    if ($params) $stmt->bind_param($types, ...$params);
-    $stmt->execute();
-    $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-    $stmt->close();
-} else { $rows = []; }
+// Summary counts + detail rows (shared with admin/reports_pdf.php).
+$reportData = reports_data($conn, $filters);
+$summary = $reportData["summary"];
+$rows = $reportData["rows"];
 
 // CSV / Excel export.
 if (isset($_GET["export"]) && $_GET["export"] === "csv") {
@@ -156,8 +98,8 @@ require "_header.php";
 <div class="page-heading">
     <div><h1>Reports</h1><p>Generate clearance summaries — counts plus detailed rows. Export to Excel (CSV) or print to PDF.</p></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <a class="btn btn-secondary" href="reports.php?<?= e(qs(["export" => "csv"])) ?>"><i data-lucide="file-spreadsheet"></i> Export Excel (CSV)</a>
-        <button class="btn btn-primary" data-print-confirm data-delete-confirm="Print the report now?" data-confirm-title="Print report?" data-confirm-action="Print" data-confirm-kind="warning" data-confirm-icon="printer"><i data-lucide="printer"></i> Print / PDF</button>
+        <a class="btn btn-secondary" href="reports.php?<?= e(qs(["export" => "csv"])) ?>" data-delete-confirm="Download <?= (int)count($rows) ?> record(s) as a CSV file? The export contains the filters that are currently applied." data-confirm-title="Export Excel (CSV)?" data-confirm-action="Export" data-confirm-kind="warning" data-confirm-icon="file-spreadsheet"><i data-lucide="file-spreadsheet"></i> Export Excel (CSV)</a>
+        <a class="btn btn-primary" href="reports_pdf.php?<?= e(qs_without(["export"])) ?>" data-delete-confirm="Download the report as a PDF? The PDF contains the <?= (int)count($rows) ?> record(s) matching the current filters." data-confirm-title="Print / PDF?" data-confirm-action="Download" data-confirm-kind="warning" data-confirm-icon="printer"><i data-lucide="printer"></i> Print / PDF</a>
         <?php if ($dupeExtra > 0): ?>
         <form method="post" style="display:inline;" data-delete-confirm="Archive <?= (int)$dupeExtra ?> older duplicate request(s)? The newest request per student and term is kept." data-confirm-title="Clean duplicates?" data-confirm-action="Clean">
             <input type="hidden" name="action" value="dedup">
@@ -302,7 +244,15 @@ body.dark .report-date-wrap input[type="date"] { color-scheme:dark; }
 .filter-pill svg { width:13px; height:13px; }
 .filter-pill:hover { border-color:var(--red, #ef4444); color:var(--red, #ef4444); }
 .filter-pill-clear { padding:5px 12px; }
-@media print { .sidebar, .topbar, .page-heading .btn, .toolbar-card, .stats-grid, .active-filters, .report-filters { display:none !important; } .content { padding:0; } }
+@media print {
+    /* The print preview renders at a narrow width, which switches the app to its
+       mobile layout - hide that chrome so only the report is printed. */
+    .sidebar, .topbar, .bottom-nav, .more-sheet, .more-sheet-backdrop,
+    .page-heading .btn, .toolbar-card, .stats-grid, .active-filters, .report-filters,
+    .confirm-modal, .floating-form, .notif-dropdown, .profile-dropdown { display:none !important; }
+    .content { padding:0; }
+    .page-heading h1 { font-size:18px; }
+}
 </style>
 <script>
 (function () {
