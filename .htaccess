@@ -1,0 +1,18 @@
+# Student Clearance System - hosting hardening (Apache 2.4 / LiteSpeed, works on Hostinger)
+
+# Never expose directory listings.
+Options -Indexes
+
+# The landing page of the project.
+DirectoryIndex index.php
+
+# Block direct download of dumps, logs and dot files.
+<FilesMatch "(?i)(^\.|\.(sql|ini|log|bak|old|orig|md)$)">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>

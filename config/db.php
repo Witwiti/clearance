@@ -2,15 +2,39 @@
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
-$host = "localhost";
-$username = "root";
-$password = "";
-$database = "school_clearance_db";
 
-$conn = new mysqli($host, $username, $password, $database);
+// ---------------------------------------------------------------------------
+// Database credentials, resolved in this order:
+//   1. config/db.local.php  - git-ignored file created on the server (recommended)
+//   2. Environment variables DB_HOST / DB_USER / DB_PASSWORD / DB_NAME
+//   3. Local XAMPP defaults (below)
+// Copy config/db.local.example.php to config/db.local.php on the host and fill
+// in the values from hPanel > Databases > Management.
+// ---------------------------------------------------------------------------
+$localConfigPath = __DIR__ . "/db.local.php";
+$localConfig = [];
+if (is_file($localConfigPath)) {
+    $loadedConfig = require $localConfigPath;
+    if (is_array($loadedConfig)) $localConfig = $loadedConfig;
+}
+
+$host = (string)($localConfig["host"] ?? (getenv("DB_HOST") ?: "localhost"));
+$username = (string)($localConfig["username"] ?? (getenv("DB_USER") ?: "root"));
+$password = (string)($localConfig["password"] ?? (getenv("DB_PASSWORD") ?: ""));
+$database = (string)($localConfig["name"] ?? (getenv("DB_NAME") ?: "school_clearance_db"));
+
+try {
+    $conn = new mysqli($host, $username, $password, $database);
+} catch (Throwable $connectionError) {
+    error_log("Clearance DB connection failed: " . $connectionError->getMessage());
+    http_response_code(500);
+    die("<h3>Database connection failed</h3><p>Check <code>config/db.local.php</code> (or the DB_HOST / DB_USER / DB_PASSWORD / DB_NAME environment variables).</p>");
+}
 
 if ($conn->connect_error) {
-    die("Database connection failed: " . $conn->connect_error);
+    error_log("Clearance DB connection failed: " . $conn->connect_error);
+    http_response_code(500);
+    die("<h3>Database connection failed</h3><p>Check <code>config/db.local.php</code> (or the DB_HOST / DB_USER / DB_PASSWORD / DB_NAME environment variables).</p>");
 }
 
 $conn->set_charset("utf8mb4");

@@ -1,0 +1,12 @@
+# Local database credentials (created on each server, never committed).
+config/db.local.php
+
+# Local scratch files
+query
+*.log
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

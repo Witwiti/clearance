@@ -122,4 +122,5 @@ Project root: `C:\xampp\htdocs\clearance` · Open via `http://localhost/clearanc
 
 - Prepared statements for inputs, `e()` on output, `password_hash`/`password_verify`, `session_regenerate_id`, owner scoping (`assigned_by_user_id`, `created_by`), `random_bytes` avatar names, `affected_rows` guards, PRG pattern with `$_SESSION[flash_message]`.
 - Security headers (`X-Content-Type-Options`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy`) in `config/db.php`.
+- Hosting hardening: DB credentials live in `config/db.local.php` (git-ignored) or `DB_*` env vars, never in the repo; `.htaccess` blocks web access to `config/`, `database/`, `lib/`, disables directory listings and stops uploaded avatars from being executed as PHP. Full guide: `DEPLOY.md` (Hostinger/hPanel).
 - Known limits: no pagination (full scans; reports capped at 500), admin clearance page recalculates all active requests per load, no audit logs, no public self-registration, no email/2FA/SSL enforcement, chat/discussion/file-sharing intentionally excluded per delimitation.

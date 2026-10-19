@@ -1,0 +1,9 @@
+# Configuration folder: never reachable over HTTP (it holds the DB credentials).
+# PHP can still include these files - the app works normally.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>

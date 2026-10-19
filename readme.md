@@ -18,11 +18,12 @@ A role-based PHP/MySQLi web portal for Christ The King College De Maranding, Inc
 1. Copy folder to `C:\xampp\htdocs\clearance`.
 2. Start Apache + MySQL in XAMPP.
 3. In phpMyAdmin create `school_clearance_db` and import your dump. If tables are missing, the app self-creates `system_settings`, `courses`, `clearance_items` on first hit (see Section 5).
-4. Verify `config/db.php`: host `localhost`, user `root`, password `""`, database `school_clearance_db`.
+4. Verify the database credentials: `config/db.php` reads `config/db.local.php` (git-ignored, copy `config/db.local.example.php`) → then the `DB_HOST` / `DB_USER` / `DB_PASSWORD` / `DB_NAME` environment variables → then the local XAMPP defaults (`localhost`, `root`, empty password, `school_clearance_db`).
 5. Open `http://localhost/clearance/admin/login.php`. This one login page serves admin, student, and office roles.
 6. Create users in `admin/users.php`. A student `users` row auto-creates a linked `students` row. An office user becomes functional after linking in `admin/assignatories.php` or after a dean creates signatories under them.
 
 > `README.txt` is the original short note. `scms/` is an empty placeholder directory.
+> **Hosting:** `DEPLOY.md` has the step-by-step guide for Hostinger/hPanel (database, Git or FTP upload, `config/db.local.php`, permissions, go-live checklist).
 
 ## 3. Roles and Core Concepts
 
@@ -57,7 +58,8 @@ A role-based PHP/MySQLi web portal for Christ The King College De Maranding, Inc
 
 ## 5. Global Infrastructure (`config/db.php`)
 
-- Connects `new mysqli(localhost, root, "", school_clearance_db)`, dies on connect error, sets `utf8mb4`.
+- Credentials resolved in order: `config/db.local.php` (git-ignored, per server) → `DB_HOST` / `DB_USER` / `DB_PASSWORD` / `DB_NAME` env vars → local XAMPP defaults (`localhost`, `root`, `""`, `school_clearance_db`). A failed connection logs the reason and shows a short "check config/db.local.php" page instead of a raw driver error.
+- Connects `new mysqli(...)`, sets `utf8mb4`.
 - Ensures `system_settings(setting_key VARCHAR(80) PK, setting_value TEXT, updated_at TIMESTAMP)`.
 - Maintenance gate: if `maintenance_mode==1` and logged-in non-admin, redirects to `index.php` (or `../index.php` when inside a subdirectory, derived from `dirname($_SERVER[SCRIPT_NAME])`).
 - Lightweight migrations on every request via `SHOW COLUMNS LIKE`: adds `users.avatar_path`, `users.department`, `users.college_dean TINYINT DEFAULT 0`, `users.college_dean_course`; adds `office_assignatories.assignatory_name`, `assigned_by_user_id`; modifies `office_assignatories.user_id` to `INT UNSIGNED NULL` so manual named signatories can exist without a user account.
