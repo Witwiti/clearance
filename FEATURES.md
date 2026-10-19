@@ -26,6 +26,14 @@ Project root: `C:\xampp\htdocs\clearance` · Open via `http://localhost/clearanc
    - `total==0` → `pending`; any `rejected` → `not_cleared`; all `approved` → `cleared`; else `pending`.
 5. Student tracks per-office status, remarks, `reviewed_at`, progress % (`approved/total`), and prints the form.
 
+### 2.1 Printable clearance form (PDF export)
+
+- On-screen form: `student/clearance.php` renders the paper (logo, school header, term of the request, Name/Course/Year Level/Student No., Office / In Charge / Signature status table).
+- **Print = server-side PDF**: `student/clearance_pdf.php?request=<id>` builds the same form with FPDF (`lib/clearance_form_pdf.php`) and downloads `clearance-form-<student no>-<id>.pdf` (A4, one page, repeated table header if it spills, footer with term + request no. + print date + page number, signature line under each status).
+- Why: the browser print preview (`window.print()` → `chrome://print`) fails with `ReferenceError: Mojo is not defined` on some Chromium builds (Brave) and stamps the browser date/URL on the sheet. The PDF route avoids the preview entirely.
+- Access control: only the signed-in student can download their own form (other students' request ids return 404).
+- Screen and PDF share the same data helpers (`config/clearance_form.php`) so offices, in-charge names and statuses always match.
+
 ## 3. Notifications (real-time / automatic)
 
 - Table: `notifications(notification_id, user_id FK, title, message, type, related_id, is_read, created_at)`.
@@ -65,7 +73,7 @@ Project root: `C:\xampp\htdocs\clearance` · Open via `http://localhost/clearanc
 
 - Table: `requirement_types(requirement_id, office_id FK, requirement_name, description, is_required, status, created_at)`.
 - `admin/requirement_types.php`: full CRUD + activate/deactivate + delete (confirm modal), office filter + search, reusable across requests.
-- Integration: `admin/clearance.php` detail panel has **Apply requirement templates** (copies all active types, skips exact duplicates) + `Manage templates` shortcut.
+- Integration: `admin/clearance.php` + `admin/requirement_types.php` share the same **Publish requirements** flow (Public = all active requests + auto-attach to new ones, Custom = chosen students only, duplicates skipped). Publishing / unpublishing writes to `clearance_items.source_requirement_id` and fires a `requirements_update` notification to affected students (`student/notifications.php` + `My requirements` on dashboard).
 - Per-request custom items still live in `clearance_items` (unchanged editor).
 
 ## 8. School Terms (semester + school year master data)
@@ -107,7 +115,7 @@ Project root: `C:\xampp\htdocs\clearance` · Open via `http://localhost/clearanc
 - Shared app shell (`*_header.php` + `*_footer.php`): fixed sidebar (250px → 72px mini → hidden + full-width content when `body.sidebar-collapsed` on desktop), collapsible via toggle (persisted in `localStorage`), mobile drawer, sidebar search + `Ctrl/Cmd+K`, org switcher, **dark mode** (persisted), **PHT live clock** (`Asia/Manila`), Lucide icons, topbar avatar.
 - `assets/js/app.js` (no backend calls except badge polling): notice auto-dismiss (4s), clock, dark mode, sidebars,一模一样的 school menu, `filterTable()` client search for simple lists (server-side GET forms opt out via `data-server-filter`), floating modals (`data-form-target`, backdrop/`Escape` close), delete-confirm modal (`data-delete-confirm`), help button.
 - Status pills: `pending/approved/cleared/active/rejected/not_cleared/inactive/draft/published`.
-- Printable clearance form (`student/clearance.php`): school header + logo (`ckcm transparent.png`), Name/Course rows, Office / In Charge / Signature badge table.
+- Printable clearance form (`student/clearance.php`): school header + logo (`ckcm transparent.png`), Name/Course rows, Office / In Charge / Signature badge table; "Print form (PDF)" button downloads the server-rendered PDF (`student/clearance_pdf.php`, FPDF in `lib/`).
 - Responsive: single-column landing ≤760px; content padding shrinks ≤620px; 2-col stats ≤620px; review table scrolls (1180px min).
 
 ## 14. Security & Conventions

@@ -1,5 +1,5 @@
 <?php
-$pageTitle = "My Profile";
+$pageTitle = "Profile";
 $activePage = "profile";
 require_once "../config/db.php";
 require_once "../config/auth.php";
@@ -8,15 +8,12 @@ require_role("office");
 $message = "";
 $error = "";
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
-    $fullName = trim($_POST["full_name"] ?? "");
-    $email = trim($_POST["email"] ?? "");
-    $password = $_POST["password"] ?? "";
     $userId = (int)$_SESSION["user_id"];
     $avatarPath = null;
     if (isset($_FILES["avatar"]) && $_FILES["avatar"]["error"] !== UPLOAD_ERR_NO_FILE) {
-        $allowedTypes = ["image/jpeg" => "jpg", "image/png" => "png", "image/webp" => "webp"];
+        $allowedTypes = ["image/jpeg" => "jpg", "image/png" => "png", "image/webp" => "webp", "image/gif" => "gif"];
         $fileType = (new finfo(FILEINFO_MIME_TYPE))->file($_FILES["avatar"]["tmp_name"]);
-        if ($_FILES["avatar"]["error"] !== UPLOAD_ERR_OK || !isset($allowedTypes[$fileType]) || $_FILES["avatar"]["size"] > 2 * 1024 * 1024) $error = "Profile picture must be a JPG, PNG, or WebP image up to 2 MB.";
+        if ($_FILES["avatar"]["error"] !== UPLOAD_ERR_OK || !isset($allowedTypes[$fileType]) || $_FILES["avatar"]["size"] > 2 * 1024 * 1024) $error = "Profile picture must be a JPG, PNG, WebP, or GIF image up to 2 MB.";
         else {
             $uploadDirectory = dirname(__DIR__) . "/assets/uploads/profiles";
             if (!is_dir($uploadDirectory)) mkdir($uploadDirectory, 0755, true);
@@ -25,42 +22,118 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             else $error = "Unable to save the profile picture.";
         }
     }
-    if ($error === "" && ($fullName === "" || $email === "")) $error = "Full name and email are required.";
-    if ($error === "" && !filter_var($email, FILTER_VALIDATE_EMAIL)) $error = "Please enter a valid email address.";
-    if ($error === "") {
-        $emailCheck = $conn->prepare("SELECT user_id FROM users WHERE email = ? AND user_id <> ? LIMIT 1");
-        $emailCheck->bind_param("si", $email, $userId);
-        $emailCheck->execute();
-        $emailTaken = $emailCheck->get_result()->num_rows > 0;
-        $emailCheck->close();
-        if ($emailTaken) $error = "Email is already in use by another account.";
-    }
-    if ($error === "") {
-        if ($avatarPath !== null && $password !== "") { $hash = password_hash($password, PASSWORD_DEFAULT); $stmt = $conn->prepare("UPDATE users SET full_name = ?, email = ?, avatar_path = ?, password = ? WHERE user_id = ?"); $stmt->bind_param("ssssi", $fullName, $email, $avatarPath, $hash, $userId); }
-        elseif ($avatarPath !== null) { $stmt = $conn->prepare("UPDATE users SET full_name = ?, email = ?, avatar_path = ? WHERE user_id = ?"); $stmt->bind_param("sssi", $fullName, $email, $avatarPath, $userId); }
-        elseif ($password !== "") { $hash = password_hash($password, PASSWORD_DEFAULT); $stmt = $conn->prepare("UPDATE users SET full_name = ?, email = ?, password = ? WHERE user_id = ?"); $stmt->bind_param("sssi", $fullName, $email, $hash, $userId); }
-        else { $stmt = $conn->prepare("UPDATE users SET full_name = ?, email = ? WHERE user_id = ?"); $stmt->bind_param("ssi", $fullName, $email, $userId); }
-        if ($stmt->execute()) { $message = "Profile updated."; $_SESSION["full_name"] = $fullName; $_SESSION["email"] = $email; if ($avatarPath !== null) $_SESSION["avatar_path"] = $avatarPath; }
-        else $error = "Unable to update your profile.";
-        $stmt->close();
+
+    // Picture-only form (Change picture button) carries no name/email fields.
+    $infoForm = isset($_POST["full_name"]) || isset($_POST["email"]);
+    if ($error !== "") {
+    } elseif (!$infoForm) {
+        if ($avatarPath === null) {
+            $error = "Please choose a photo to upload.";
+        } else {
+            $stmt = $conn->prepare("UPDATE users SET avatar_path = ?, updated_at = NOW() WHERE user_id = ?");
+            $stmt->bind_param("si", $avatarPath, $userId);
+            if ($stmt->execute()) {
+                $_SESSION["avatar_path"] = $avatarPath;
+                $message = "Profile picture updated.";
+            } else {
+                $error = "Unable to update your profile picture.";
+            }
+            $stmt->close();
+        }
+    } else {
+        $fullName = trim($_POST["full_name"] ?? "");
+        $email = trim($_POST["email"] ?? "");
+        if ($fullName === "" || $email === "") {
+            $error = "Full name and email are required.";
+        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $error = "Please enter a valid email address.";
+        } else {
+            $emailCheck = $conn->prepare("SELECT user_id FROM users WHERE email = ? AND user_id <> ? LIMIT 1");
+            $emailCheck->bind_param("si", $email, $userId);
+            $emailCheck->execute();
+            $emailTaken = $emailCheck->get_result()->num_rows > 0;
+            $emailCheck->close();
+            if ($emailTaken) $error = "Email is already in use by another account.";
+        }
+        if ($error === "") {
+            if ($avatarPath !== null) {
+                $stmt = $conn->prepare("UPDATE users SET full_name = ?, email = ?, avatar_path = ?, updated_at = NOW() WHERE user_id = ?");
+                $stmt->bind_param("sssi", $fullName, $email, $avatarPath, $userId);
+            } else {
+                $stmt = $conn->prepare("UPDATE users SET full_name = ?, email = ?, updated_at = NOW() WHERE user_id = ?");
+                $stmt->bind_param("ssi", $fullName, $email, $userId);
+            }
+            if ($stmt->execute()) {
+                $_SESSION["full_name"] = $fullName;
+                $_SESSION["email"] = $email;
+                if ($avatarPath !== null) $_SESSION["avatar_path"] = $avatarPath;
+                $message = "Profile updated.";
+            } else {
+                $error = "Unable to update your profile.";
+            }
+            $stmt->close();
+        }
     }
 }
-$avatarStmt = $conn->prepare("SELECT avatar_path FROM users WHERE user_id = ?");
-$avatarStmt->bind_param("i", $_SESSION["user_id"]);
-$avatarStmt->execute();
-$avatar = $avatarStmt->get_result()->fetch_assoc();
-$avatarStmt->close();
-$avatarUrl = !empty($avatar["avatar_path"]) ? "../" . $avatar["avatar_path"] : "../assets/images/system_logo.jpg";
 $currentProfileUserId = (int)($_SESSION["user_id"] ?? 0);
+$accountStmt = $conn->prepare("SELECT avatar_path, role, status, last_login, updated_at FROM users WHERE user_id = ? LIMIT 1");
+$accountStmt->bind_param("i", $currentProfileUserId);
+$accountStmt->execute();
+$account = $accountStmt->get_result()->fetch_assoc() ?: [];
+$accountStmt->close();
+$avatarUrl = !empty($account["avatar_path"]) ? "../" . $account["avatar_path"] : "";
+$nameParts = preg_split('/\s+/', trim((string)($_SESSION["full_name"] ?? "")), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+$firstWord = $nameParts[0] ?? "";
+$lastWord = count($nameParts) > 1 ? $nameParts[count($nameParts) - 1] : "";
+$initials = strtoupper(mb_substr($firstWord, 0, 1) . ($lastWord !== "" ? mb_substr($lastWord, 0, 1) : ""));
+if ($initials === "") $initials = "O";
 $assignmentStmt = $conn->prepare("SELECT o.office_name, oa.position FROM office_assignatories oa INNER JOIN offices o ON o.office_id = oa.office_id WHERE (oa.user_id = ? OR oa.assigned_by_user_id = ?) AND oa.status = 'active' LIMIT 1");
 $assignmentStmt->bind_param("ii", $currentProfileUserId, $currentProfileUserId);
 $assignmentStmt->execute();
 $assignment = $assignmentStmt->get_result()->fetch_assoc();
 $assignmentStmt->close();
+$formatDateTime = function ($value) {
+    if (empty($value) || strtotime($value) === false) return "—";
+    return date("M d, Y, h:i A", strtotime($value));
+};
 require "_header.php";
 ?>
-<div class="page-heading"><div><h1>My Profile</h1><p>Manage your office account and profile picture.</p></div></div>
+<div class="page-heading"><div><h1>Profile</h1><p>View and update your personal information.</p></div></div>
 <?php if ($message !== ""): ?><div class="notice notice-success"><?= e($message) ?></div><?php endif; ?><?php if ($error !== ""): ?><div class="notice notice-error"><?= e($error) ?></div><?php endif; ?>
-<div class="profile-card form-card"><img src="<?= e($avatarUrl) ?>" class="profile-large" alt="Office profile picture"><div><h2><?= e($_SESSION["full_name"]) ?></h2><p><?= e($_SESSION["email"]) ?></p><span class="role-badge">Office · <?= e($assignment["office_name"] ?? "Unassigned") ?></span></div></div>
-<div class="form-card announcement-form profile-edit-form"><h2>Edit profile</h2><form method="post" enctype="multipart/form-data"><label>Full name<input name="full_name" required value="<?= e($_SESSION["full_name"]) ?>"></label><label>Email<input type="email" name="email" required value="<?= e($_SESSION["email"]) ?>"></label><label>New password<input type="password" name="password" placeholder="Leave blank to keep current password"></label><label>Profile picture<input type="file" name="avatar" accept="image/jpeg,image/png,image/webp"><small class="field-help">JPG, PNG, or WebP up to 2 MB.</small></label><button class="btn btn-primary" type="submit"><i data-lucide="save"></i>Save profile</button></form></div>
+<div class="profile-page">
+    <section class="form-card profile-card-block">
+        <h2>Profile picture</h2>
+        <p>Upload a square photo up to 2MB (JPEG, PNG, WebP, or GIF).</p>
+        <div class="profile-picture-row">
+            <?php if ($avatarUrl !== ""): ?><img src="<?= e($avatarUrl) ?>" class="profile-large-preview" alt="Office profile picture"><?php else: ?><span class="profile-large-preview" aria-hidden="true"><?= e($initials) ?></span><?php endif; ?>
+            <form method="post" enctype="multipart/form-data">
+                <input type="file" name="avatar" id="avatarUpload" accept="image/jpeg,image/png,image/webp,image/gif" hidden>
+                <label class="change-picture-btn" for="avatarUpload"><i data-lucide="camera"></i>Change picture</label>
+            </form>
+        </div>
+    </section>
+    <section class="form-card announcement-form profile-card-block">
+        <h2>Personal information</h2>
+        <p>Update your contact details and profile picture.</p>
+        <form method="post" enctype="multipart/form-data">
+            <div class="form-grid">
+                <label style="grid-column:1/-1;">Full name<input name="full_name" required value="<?= e($_SESSION["full_name"]) ?>"></label>
+                <label style="grid-column:1/-1;">Email<input type="email" name="email" required value="<?= e($_SESSION["email"]) ?>"><small class="readonly-note">Email is used to sign in.</small></label>
+                <label style="grid-column:1/-1;">Office assignment<input value="<?= e(trim(($assignment["office_name"] ?? "Unassigned") . (isset($assignment["position"]) && $assignment["position"] !== "" ? " · " . $assignment["position"] : ""))) ?>" readonly><small class="readonly-note">Assignments are managed by the administrator.</small></label>
+            </div>
+            <div class="profile-meta-grid">
+                <div><strong>Role</strong><span>Office</span></div>
+                <div><strong>Status</strong><span><?= e(ucfirst($account["status"] ?? "Active")) ?></span></div>
+                <div><strong>Last Login</strong><span><?= e($formatDateTime($account["last_login"] ?? null)) ?></span></div>
+                <div><strong>Updated At</strong><span><?= e($formatDateTime($account["updated_at"] ?? null)) ?></span></div>
+            </div>
+            <div style="margin-top:18px;"><button class="btn btn-primary" type="submit"><i data-lucide="save"></i>Save changes</button></div>
+        </form>
+    </section>
+</div>
+<script>
+document.getElementById("avatarUpload")?.addEventListener("change", function () {
+    if (this.files && this.files.length) this.form.submit();
+});
+</script>
 <?php require "_footer.php"; ?>

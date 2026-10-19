@@ -64,6 +64,34 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $_SESSION["flash_message"] = "Course status updated.";
         header("Location: courses.php");
         exit;
+    } elseif ($action === "delete" && $courseId > 0) {
+        $nameStmt = $conn->prepare("SELECT course_name FROM courses WHERE course_id = ? LIMIT 1");
+        $nameStmt->bind_param("i", $courseId);
+        $nameStmt->execute();
+        $courseRow = $nameStmt->get_result()->fetch_assoc();
+        $nameStmt->close();
+        if (!$courseRow) {
+            $error = "Course not found.";
+        } else {
+            $useStmt = $conn->prepare("SELECT COUNT(*) AS c FROM students WHERE course = ?");
+            $useStmt->bind_param("s", $courseRow["course_name"]);
+            $useStmt->execute();
+            $useCount = (int)($useStmt->get_result()->fetch_assoc()["c"] ?? 0);
+            $useStmt->close();
+            if ($useCount > 0) {
+                $error = "Unable to delete: this course is assigned to " . $useCount . " student" . ($useCount === 1 ? "" : "s") . ".";
+            } else {
+                $stmt = $conn->prepare("DELETE FROM courses WHERE course_id = ?");
+                $stmt->bind_param("i", $courseId);
+                if ($stmt->execute() && $stmt->affected_rows > 0) {
+                    $_SESSION["flash_message"] = "Course deleted.";
+                    header("Location: courses.php");
+                    exit;
+                }
+                $error = "Unable to delete the course.";
+                $stmt->close();
+            }
+        }
     }
 }
 
@@ -130,6 +158,11 @@ require "_header.php";
                                 <input type="hidden" name="action" value="toggle">
                                 <input type="hidden" name="course_id" value="<?= (int)$row["course_id"] ?>">
                                 <button class="table-action" type="submit"><?= $row["status"] === "active" ? "Deactivate" : "Activate" ?></button>
+                            </form>
+                            <form method="post" data-delete-confirm="Delete the course “<?= e($row["course_code"]) ?>” permanently? This cannot be undone.">
+                                <input type="hidden" name="action" value="delete">
+                                <input type="hidden" name="course_id" value="<?= (int)$row["course_id"] ?>">
+                                <button class="table-action table-action-danger" type="submit">Delete</button>
                             </form>
                         </td>
                     </tr>

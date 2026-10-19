@@ -18,13 +18,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $officeName = trim($_POST["office_name"] ?? "");
         $description = trim($_POST["description"] ?? "");
         $status = ($_POST["status"] ?? "active") === "inactive" ? "inactive" : "active";
-        $editOffice = compact("officeId", "officeName", "description", "status");
+        $scope = ($_POST["scope"] ?? "general") === "department" ? "department" : "general";
+        $editOffice = compact("officeId", "officeName", "description", "status", "scope");
 
         if ($officeName === "") {
             $error = "Office name is required.";
         } elseif ($officeId > 0) {
-            $stmt = $conn->prepare("UPDATE offices SET office_name = ?, description = ?, status = ? WHERE office_id = ?");
-            $stmt->bind_param("sssi", $officeName, $description, $status, $officeId);
+            $stmt = $conn->prepare("UPDATE offices SET office_name = ?, description = ?, scope = ?, status = ? WHERE office_id = ?");
+            $stmt->bind_param("ssssi", $officeName, $description, $scope, $status, $officeId);
             if ($stmt->execute()) {
                 $_SESSION["flash_message"] = "Office updated.";
                 header("Location: offices.php");
@@ -33,8 +34,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             else $error = "Unable to save the office.";
             $stmt->close();
         } else {
-            $stmt = $conn->prepare("INSERT INTO offices (office_name, description, status) VALUES (?, ?, ?)");
-            $stmt->bind_param("sss", $officeName, $description, $status);
+            $stmt = $conn->prepare("INSERT INTO offices (office_name, description, scope, status) VALUES (?, ?, ?, ?)");
+            $stmt->bind_param("ssss", $officeName, $description, $scope, $status);
             if ($stmt->execute()) {
                 $_SESSION["flash_message"] = "Office added.";
                 header("Location: offices.php");
@@ -72,7 +73,7 @@ if ($_SERVER["REQUEST_METHOD"] !== "POST" && isset($_GET["edit"])) {
 }
 
 $offices = $conn->query(
-    "SELECT office_id, office_name, description, status, created_at
+    "SELECT office_id, office_name, description, scope, status, created_at
      FROM offices ORDER BY office_name ASC"
 );
 
@@ -101,6 +102,7 @@ require "_header.php";
         <input type="hidden" name="office_id" value="<?= (int)($editOffice["office_id"] ?? $editOffice["officeId"] ?? 0) ?>">
         <label>Office name<input name="office_name" required value="<?= e($editOffice["office_name"] ?? $editOffice["officeName"] ?? "") ?>"></label>
         <label>Description<textarea name="description" rows="3"><?= e($editOffice["description"] ?? "") ?></textarea></label>
+        <label>Scope<select name="scope" id="officeScope"><option value="general" <?= ($editOffice["scope"] ?? "general") === "general" ? "selected" : "" ?>>General — all clearances</option><option value="department" <?= ($editOffice["scope"] ?? "") === "department" ? "selected" : "" ?>>Department — dean assigns per course</option></select><small class="field-help">Department offices (e.g. Dept. Treasurer, Dept. Club) appear in every dean dropdown. Shared across all courses — each dean assigns their own signatory.</small></label>
         <label>Status<select name="status"><option value="active" <?= ($editOffice["status"] ?? "active") === "active" ? "selected" : "" ?>>Active</option><option value="inactive" <?= ($editOffice["status"] ?? "active") === "inactive" ? "selected" : "" ?>>Inactive</option></select></label>
         <button class="btn btn-primary" type="submit"><i data-lucide="save"></i><?= $editOffice ? "Save changes" : "Add office" ?></button>
     </form>
@@ -109,13 +111,14 @@ require "_header.php";
 <div class="table-card">
     <div class="table-wrapper">
         <table>
-            <thead><tr><th>Office</th><th>Description</th><th>Status</th><th>Action</th></tr></thead>
+            <thead><tr><th>Office</th><th>Description</th><th>Scope</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
             <?php if ($offices && $offices->num_rows): ?>
                 <?php while ($row = $offices->fetch_assoc()): ?>
                     <tr>
                         <td><strong><?= e($row["office_name"]) ?></strong></td>
                         <td><?= e($row["description"] ?: "—") ?></td>
+                        <td><span class="role-badge"><?= e(($row["scope"] ?? "general") === "department" ? "Department" : "General") ?></span></td>
                         <td><span class="status status-<?= e($row["status"]) ?>"><?= e(ucfirst($row["status"])) ?></span></td>
                         <td class="action-group">
                             <a class="table-action" href="offices.php?edit=<?= (int)$row["office_id"] ?>#office-form">Edit</a>
@@ -133,7 +136,7 @@ require "_header.php";
                     </tr>
                 <?php endwhile; ?>
             <?php else: ?>
-                <tr><td colspan="4" class="empty-state">No offices found.</td></tr>
+                <tr><td colspan="5" class="empty-state">No offices found.</td></tr>
             <?php endif; ?>
             </tbody>
         </table>

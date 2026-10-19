@@ -23,7 +23,7 @@ $result = $conn->query("SELECT
     SUM(overall_status='pending') AS pending_total,
     SUM(overall_status='cleared') AS cleared_total,
     SUM(overall_status='not_cleared') AS not_cleared_total
-    FROM clearance_requests");
+    FROM clearance_requests WHERE is_archived=0");
 if ($result) {
     $stats = $result->fetch_assoc();
     $pendingCount = (int)($stats["pending_total"] ?? 0);
@@ -37,6 +37,7 @@ $recent = $conn->query(
             cr.overall_status, cr.school_year, cr.semester, cr.requested_at
      FROM clearance_requests cr
      INNER JOIN students s ON s.student_id = cr.student_id
+     WHERE cr.is_archived=0
      ORDER BY cr.requested_at DESC
      LIMIT 8"
 );
@@ -115,6 +116,13 @@ require "_header.php";
             <i data-lucide="user-round-cog"></i>
             <div><strong><?= $assignatoryCount ?></strong><span>Assignatories</span></div>
         </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+        <a class="btn btn-secondary" href="reports.php"><i data-lucide="file-bar-chart"></i> Generate report (Excel / PDF)</a>
+        <a class="btn btn-secondary" href="archive.php"><i data-lucide="archive"></i> Archived records</a>
+        <a class="btn btn-secondary" href="requirement_types.php"><i data-lucide="list-checks"></i> Requirement types</a>
+        <a class="btn btn-secondary" href="school_terms.php"><i data-lucide="calendar-days"></i> School terms</a>
+        <a class="btn btn-secondary" href="notifications.php"><i data-lucide="bell"></i> Notifications</a>
     </div>
 </section>
 

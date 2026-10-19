@@ -27,6 +27,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 			$updated = $stmt->execute();
 			$stmt->close();
 			if ($updated) {
+				if ($status === "published" && function_exists('notify_role')) {
+					notify_role($conn, 'student', 'New announcement: ' . $title, mb_substr($content, 0, 180), 'announcement', $announcementId);
+				}
 				$_SESSION["flash_message"] = "Announcement updated.";
 				header("Location: announcements.php");
 				exit;
@@ -36,8 +39,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 			$stmt = $conn->prepare("INSERT INTO announcements (title, content, status, created_by) VALUES (?, ?, ?, ?)");
 			$stmt->bind_param("sssi", $title, $content, $status, $officeUserId);
 			$created = $stmt->execute();
+			$newId = $stmt->insert_id;
 			$stmt->close();
 			if ($created) {
+				if ($status === "published" && function_exists('notify_role')) {
+					notify_role($conn, 'student', 'New announcement: ' . $title, mb_substr($content, 0, 180), 'announcement', (int)$newId);
+				}
 				$_SESSION["flash_message"] = "Announcement created.";
 				header("Location: announcements.php");
 				exit;

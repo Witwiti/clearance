@@ -9,8 +9,9 @@ A role-based PHP/MySQLi web portal for Christ The King College De Maranding, Inc
 - HTML + `assets/css/dashboard.css` (app shell) + `assets/css/auth.css` (landing/login/maintenance)
 - Vanilla JavaScript `assets/js/app.js`, Lucide SVG icons via CDN (`https://unpkg.com/lucide@latest`)
 - XAMPP (Apache + MySQL + phpMyAdmin) on Windows; project lives at `C:\xampp\htdocs\clearance`
-- Images: `assets/images/system_logo.jpg` (brand/avatar fallback), `ckcm_logo.jpg` (org switcher), `ckcm transparent.png` (printable form header), `school-logo.svg`
+- Images: `assets/images/system_logo.jpg` (brand/avatar fallback), `ckcm_logo.jpg` (org switcher), `ckcm transparent.png` (printable form header), `ckcm_print_logo.png` (downscaled seal used by the PDF export), `school-logo.svg`
 - Uploads: `assets/uploads/profiles/user_<24 hex>.<jpg|png|webp>`
+- Server-side PDF: `lib/fpdf.php` (FPDF 1.9, MIT, vendored — no Composer) + `lib/clearance_form_pdf.php`; shared form data helpers in `config/clearance_form.php`
 
 ## 2. Setup
 
@@ -126,7 +127,8 @@ Shared shell `admin/_header.php` (enforces `require_role('admin')`, loads `dashb
 Shell `student/_header.php` (`require_role('student')`, Student Portal topbar, menu Dashboard/My Clearance/Announcements/My Profile, logout to `../admin/logout.php`) + `_footer.php`.
 
 - `dashboard.php`: welcome header, identity card (name/number/course/status), 3 stat cards (current overall status, progress %, total requests), `#request-form` modal showing configured term (no term inputs — term is admin-controlled), clearance-progress table, latest 3 published announcements.
-- `clearance.php` (My Clearance): printable paper (`student-clearance-form-paper`, logo `ckcm transparent.png`, school header/department/title/term from `system_settings` keys prefixed `clearance_`, Name/Course meta rows, Office / In Charge (`assignatory_name — position`) / Signature (status badge) table built from active offices + active assignatories `GROUP BY`, filtered for NSTP/NSRC). Request history via `?request=` (defaults to latest). Read-only `clearance_items` load (admin-authored). New-request modal identical algorithm to dashboard.
+- `clearance.php` (My Clearance): printable paper (`student-clearance-form-paper`, logo `ckcm transparent.png`, school header/department/title/term from `system_settings` keys prefixed `clearance_`, Name/Course meta rows, Office / In Charge (`assignatory_name — position`) / Signature (status badge) table built from active offices + active assignatories `GROUP BY`, filtered for NSTP/NSRC). Request history via `?request=` (defaults to latest). Read-only `clearance_items` load (admin-authored). New-request modal identical algorithm to dashboard. The printed form shows the term of the request being viewed (falls back to the configured term).
+- `clearance_pdf.php` (PDF export of the same form): owner-only (`?request=` must belong to the signed-in student, else 404). Renders the form server-side with FPDF (`lib/clearance_form_pdf.php`) and streams it as `clearance-form-<student number>-<request id>.pdf`. The "Print form (PDF)" button on `clearance.php` downloads it. The browser print preview (`window.print()` → `chrome://print`) is deliberately not used: it crashes with `ReferenceError: Mojo is not defined` on some Chromium builds (Brave) and adds the browser date/URL to the sheet.
 - `announcements.php`: read-only `SELECT title, content, created_at WHERE status='published' ORDER BY created_at DESC`, `nl2br(e(content))`, empty panel fallback.
 - `profile.php`: edits own `users.full_name/email/password` (no avatar unlike office/admin), email format + uniqueness checks, syncs session; shows read-only student-details grid (number/course/year/status from `students WHERE user_id=?`).
 
@@ -136,7 +138,7 @@ Shell `office/_header.php` (`require_role('office')`, Office Clearance Portal to
 
 - `dashboard.php`: resolves `$officeIds` via `SELECT DISTINCT office_id FROM office_assignatories WHERE status='active' AND (user_id=? OR assigned_by_user_id=?)`. Dynamic `IN(?,...)` query joins transactions/requests/students/offices ordered by request date. Counts pending/approved/rejected in PHP (unknown -> pending). Shows 4 stat cards + assigned-office label (first office name) or "No office assignment" empty panel. CTA "Open reviews".
 - `reviews.php` (dean-only; non-deans get "Access restricted" panel + exit): queue scoped to `assigned_by_user_id=self` offices AND `students.course = users.college_dean_course`.
-  - POST `update_transaction`: sanitize IDs, whitelist `pending/approved/rejected`, verify `in_array(officeId, officeIds)`, `UPDATE clearance_transactions SET status, remarks, reviewed_at=NOW() WHERE clearance_id=? AND office_id=?`, then overall-status recalc (Section 6.2), flash + redirect.
+  - POST `bulk_update`: one decision per student request, applied to every step the reviewer is authorized for (club → own moderator; DSA-SSC → assigner; else own/dean/direct offices), whitelist `pending/approved/rejected`, then overall-status recalc (Section 6.2), student notification, flash + redirect. Table is grouped one row per request (office summary + overall status + single action form).
   - Filters: Signatory dropdown (`office_filter` GET auto-submit, options `office — name (position)`), Status dropdown (`data-filter=status`, JS-filtered), search field.
   - Table: Student (avatar or icon + number + course) / Office / School Year / Semester / Status / Updated / Action (inline status select + remarks textarea + Save).
 - `assignatories.php` (dean-only + requires `currentDepartment = college_dean_course ?: department` non-empty): CRUD for named department signatories (`user_id=NULL`, `assigned_by_user_id=self`).

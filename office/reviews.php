@@ -5,11 +5,63 @@ require_once "../config/db.php";
 require_once "../config/auth.php";
 require_role("office");
 
-if (!is_dean_user()) {
+$currentOfficeUserId = (int)($_SESSION["user_id"] ?? 0);
+$clubIds = [];
+$clubIdStmt = $conn->prepare("SELECT club_id FROM institutional_clubs WHERE moderator_user_id = ? AND status = 'active'");
+if ($clubIdStmt) {
+    $clubIdStmt->bind_param("i", $currentOfficeUserId);
+    $clubIdStmt->execute();
+    $clubIdRes = $clubIdStmt->get_result();
+    while ($cr = $clubIdRes->fetch_assoc()) $clubIds[] = (int)($cr["club_id"] ?? 0);
+    $clubIdStmt->close();
+}
+$clubIds = array_values(array_unique(array_filter($clubIds)));
+
+// DSA resolution: assigned DSA user manages SSC President signatories (dean pattern).
+$dsaOfficeId = 0;
+$sscOfficeId = 0;
+$officeRes = $conn->query("SELECT office_id, office_name FROM offices WHERE status = 'active'");
+if ($officeRes) {
+    while ($o = $officeRes->fetch_assoc()) {
+        $name = (string)($o["office_name"] ?? "");
+        if ($dsaOfficeId <= 0 && (stripos($name, "Student Affairs") !== false || preg_match('/\(DSA\)/i', $name))) $dsaOfficeId = (int)$o["office_id"];
+        if ($sscOfficeId <= 0 && stripos($name, "SSC President") !== false) $sscOfficeId = (int)$o["office_id"];
+    }
+    $officeRes->close();
+}
+if ($dsaOfficeId <= 0) $dsaOfficeId = 1;
+if ($sscOfficeId <= 0) $sscOfficeId = 7;
+$isDsaUser = false;
+if ($dsaOfficeId > 0 && $currentOfficeUserId > 0) {
+    $dq = $conn->prepare("SELECT assignatory_id FROM office_assignatories WHERE office_id = ? AND user_id = ? AND status = 'active' LIMIT 1");
+    if ($dq) {
+        $dq->bind_param("ii", $dsaOfficeId, $currentOfficeUserId);
+        $dq->execute();
+        $isDsaUser = (bool)$dq->get_result()->fetch_assoc();
+        $dq->close();
+    }
+}
+
+// Direct office assignment: admin links an office user via office_assignatories.user_id.
+// These users must also review (e.g. Registrar, Librarian, Finance) — not only deans/DSA.
+$directOfficeIds = [];
+$directStmt = $conn->prepare("SELECT DISTINCT office_id FROM office_assignatories WHERE status = 'active' AND user_id = ?");
+if ($directStmt) {
+    $directStmt->bind_param("i", $currentOfficeUserId);
+    $directStmt->execute();
+    $directRes = $directStmt->get_result();
+    if ($directRes) {
+        while ($dr = $directRes->fetch_assoc()) $directOfficeIds[] = (int)($dr["office_id"] ?? 0);
+    }
+    $directStmt->close();
+}
+$directOfficeIds = array_values(array_unique(array_filter($directOfficeIds)));
+
+if (!is_dean_user() && !$clubIds && !$isDsaUser && !$directOfficeIds) {
     require "_header.php";
     ?>
-    <div class="page-heading"><div><h1>Clearance Reviews</h1><p>Only the College dean can approve or reject department clearance reviews.</p></div></div>
-    <div class="empty-panel"><i data-lucide="shield-alert"></i><h3>Access restricted</h3><p>Your office account is a department signatory, but review decisions are managed by the College dean.</p></div>
+    <div class="page-heading"><div><h1>Clearance Reviews</h1><p>Only assigned office users, the College dean, an Institutional Club moderator, or the assigned DSA user can approve clearance reviews.</p></div></div>
+    <div class="empty-panel"><i data-lucide="shield-alert"></i><h3>Access restricted</h3><p>Your office account is not assigned to any office yet. Please contact the administrator.</p></div>
     <?php require "_footer.php"; exit();
 }
 
@@ -32,16 +84,57 @@ $officeIds = array_values(array_unique($officeIds));
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $action = $_POST["action"] ?? "";
-    if ($action === "update_transaction") {
+    if ($action === "bulk_update") {
+        // One decision per student: applies to every step of this request
+        // the reviewer is authorized for (same rules as single updates).
         $clearanceId = (int)($_POST["clearance_id"] ?? 0);
-        $officeId = (int)($_POST["office_id"] ?? 0);
         $status = in_array($_POST["status"] ?? "", ["pending", "approved", "rejected"], true) ? $_POST["status"] : "pending";
         $remarks = trim((string)($_POST["remarks"] ?? ""));
 
-        if ($clearanceId > 0 && $officeId > 0 && in_array($officeId, $officeIds, true)) {
+        $canReviewTxn = function (int $officeId, int $txnClubId) use ($conn, $clubIds, $isDsaUser, $sscOfficeId, $currentOfficeUserId, $officeIds, $directOfficeIds): bool {
+            if ($txnClubId > 0) return in_array($txnClubId, $clubIds, true);
+            if ($isDsaUser && $officeId === $sscOfficeId) {
+                // DSA reviews SSC transactions they assigned (no course filter, institutional).
+                $dchk = $conn->prepare("SELECT assignatory_id FROM office_assignatories WHERE office_id = ? AND assigned_by_user_id = ? AND status = 'active' LIMIT 1");
+                if (!$dchk) return false;
+                $dchk->bind_param("ii", $sscOfficeId, $currentOfficeUserId);
+                $dchk->execute();
+                $ok = (bool)$dchk->get_result()->fetch_assoc();
+                $dchk->close();
+                return $ok;
+            }
+            return in_array($officeId, $officeIds, true) || in_array($officeId, $directOfficeIds, true);
+        };
+
+        $authorizedOffices = [];
+        if ($clearanceId > 0) {
+            $txns = $conn->prepare("SELECT office_id, club_id FROM clearance_transactions WHERE clearance_id = ?");
+            if ($txns) {
+                $txns->bind_param("i", $clearanceId);
+                $txns->execute();
+                $txnRes = $txns->get_result();
+                while ($t = $txnRes->fetch_assoc()) {
+                    $oid = (int)($t["office_id"] ?? 0);
+                    if ($oid > 0 && $canReviewTxn($oid, (int)($t["club_id"] ?? 0))) $authorizedOffices[] = $oid;
+                }
+                $txns->close();
+            }
+        }
+        $authorizedOffices = array_values(array_unique($authorizedOffices));
+
+        if ($authorizedOffices) {
+            $okAll = true;
             $stmt = $conn->prepare("UPDATE clearance_transactions SET status = ?, remarks = ?, reviewed_at = NOW() WHERE clearance_id = ? AND office_id = ?");
-            $stmt->bind_param("ssii", $status, $remarks, $clearanceId, $officeId);
-            if ($stmt->execute()) {
+            if ($stmt) {
+                foreach ($authorizedOffices as $oid) {
+                    $stmt->bind_param("ssii", $status, $remarks, $clearanceId, $oid);
+                    if (!$stmt->execute()) $okAll = false;
+                }
+                $stmt->close();
+            } else {
+                $okAll = false;
+            }
+            if ($okAll) {
                 $statusStmt = $conn->prepare("SELECT status FROM clearance_transactions WHERE clearance_id = ?");
                 $statusStmt->bind_param("i", $clearanceId);
                 $statusStmt->execute();
@@ -75,13 +168,26 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $updateOverallStmt->execute();
                 $updateOverallStmt->close();
 
+                // Automatic student notification (approved / rejected / needs action).
+                $su = $conn->prepare("SELECT s.user_id, CONCAT(s.first_name,' ',s.last_name) AS nm FROM clearance_requests cr INNER JOIN students s ON s.student_id=cr.student_id WHERE cr.clearance_id=? LIMIT 1");
+                if ($su) {
+                    $su->bind_param("i", $clearanceId);
+                    $su->execute();
+                    $sr = $su->get_result()->fetch_assoc();
+                    $su->close();
+                    if ($sr && (int)($sr["user_id"] ?? 0) > 0 && function_exists('notify_user')) {
+                        $verb = $status === 'approved' ? 'approved' : ($status === 'rejected' ? 'rejected — action needed' : 'set back to pending');
+                        $msg = 'An office reviewer ' . $verb . ' ' . count($authorizedOffices) . ' office step(s) of your clearance request.' . ($remarks !== '' ? ' Remarks: ' . $remarks : '') . ' Overall status: ' . $overallStatus . '.';
+                        notify_user($conn, (int)$sr["user_id"], 'Clearance ' . $status, $msg, 'review_update', $clearanceId);
+                    }
+                }
+
                 $_SESSION["flash_message"] = "Clearance update saved.";
                 header("Location: reviews.php");
                 exit;
             } else {
                 $error = "Unable to update this clearance review.";
             }
-            $stmt->close();
         } else {
             $error = "You are not assigned to this office.";
         }
@@ -89,6 +195,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 }
 
 $officeFilter = (int)($_GET["office_filter"] ?? 0);
+$clubFilter = (int)($_GET["club_filter"] ?? 0);
 $deanContextStmt = $conn->prepare("SELECT college_dean_course FROM users WHERE user_id = ? LIMIT 1");
 $deanContextStmt->bind_param("i", $_SESSION["user_id"]);
 $deanContextStmt->execute();
@@ -96,9 +203,8 @@ $deanContext = $deanContextStmt->get_result()->fetch_assoc() ?: [];
 $deanContextStmt->close();
 $deanCourse = trim((string)($deanContext["college_dean_course"] ?? ""));
 $officeOptions = [];
-
-$reviewRows = [];
-if ($officeIds) {
+$clubOptions = [];
+if (is_dean_user() && $officeIds) {
     $officeOptionStmt = $conn->prepare(
         "SELECT oa.office_id, o.office_name, oa.assignatory_name, oa.position
          FROM office_assignatories oa
@@ -113,33 +219,128 @@ if ($officeIds) {
         $officeOptions[] = $officeOption;
     }
     $officeOptionStmt->close();
+}
+if ($directOfficeIds) {
+    $directOptionStmt = $conn->prepare(
+        "SELECT oa.office_id, o.office_name, 'My assignment' AS assignatory_name, oa.position
+         FROM office_assignatories oa
+         INNER JOIN offices o ON o.office_id = oa.office_id
+         WHERE oa.user_id = ? AND oa.status = 'active'
+         ORDER BY o.office_name"
+    );
+    if ($directOptionStmt) {
+        $directOptionStmt->bind_param("i", $currentOfficeUserId);
+        $directOptionStmt->execute();
+        $directOptionResult = $directOptionStmt->get_result();
+        while ($do = $directOptionResult->fetch_assoc()) {
+            // Avoid duplicate office entries when user is both dean-owner and directly assigned.
+            $dup = false;
+            foreach ($officeOptions as $ex) {
+                if ((int)$ex["office_id"] === (int)$do["office_id"]) { $dup = true; break; }
+            }
+            if (!$dup) $officeOptions[] = $do;
+        }
+        $directOptionStmt->close();
+    }
+}
+if ($clubIds) {
+    $cOpt = $conn->query("SELECT club_id, club_name FROM institutional_clubs WHERE moderator_user_id = " . (int)$currentOfficeUserId . " AND status = 'active' ORDER BY club_name ASC");
+    if ($cOpt) {
+        while ($co = $cOpt->fetch_assoc()) $clubOptions[] = $co;
+        $cOpt->close();
+    }
+}
+$dsaSscOptions = [];
+if ($isDsaUser) {
+    $dsaOpt = $conn->prepare("SELECT assignatory_name, position FROM office_assignatories WHERE office_id = ? AND assigned_by_user_id = ? AND status = 'active' ORDER BY assignatory_name ASC");
+    if ($dsaOpt) {
+        $dsaOpt->bind_param("ii", $sscOfficeId, $currentOfficeUserId);
+        $dsaOpt->execute();
+        $dsaRes = $dsaOpt->get_result();
+        while ($dr = $dsaRes->fetch_assoc()) $dsaSscOptions[] = $dr;
+        $dsaOpt->close();
+    }
+}
 
-    $placeholders = implode(",", array_fill(0, count($officeIds), "?"));
-    $sql = "SELECT ct.clearance_id, ct.office_id, o.office_name, cr.school_year, cr.semester, s.student_number,
-                CONCAT(s.first_name, ' ', s.last_name) AS student_name, u.avatar_path, s.course, ct.status, ct.remarks, ct.reviewed_at,
+$reviewRows = [];
+$whereParts = [];
+$bindValues = [];
+$bindTypes = "";
+// When a signatory filter is active, only the matching queue should return rows.
+$hasOfficeFilter = $officeFilter > 0 && (in_array($officeFilter, $officeIds, true) || in_array($officeFilter, $directOfficeIds, true));
+if (is_dean_user() && $officeIds) {
+    if (!$hasOfficeFilter || in_array($officeFilter, $officeIds, true)) {
+        $placeholders = implode(",", array_fill(0, count($officeIds), "?"));
+        $deptCond = "ct.office_id IN (" . $placeholders . ") AND ct.club_id IS NULL AND s.course = ?";
+        if ($hasOfficeFilter) {
+            $deptCond .= " AND ct.office_id = ?";
+        }
+        $whereParts[] = "(" . $deptCond . ")";
+        $bindValues = array_merge($bindValues, $officeIds);
+        $bindTypes .= str_repeat("i", count($officeIds));
+        $bindValues[] = $deanCourse;
+        $bindTypes .= "s";
+        if ($hasOfficeFilter) {
+            $bindValues[] = $officeFilter;
+            $bindTypes .= "i";
+        }
+    }
+}
+if ($directOfficeIds) {
+    // Directly assigned office staff review their own office for all courses (institutional).
+    if (!$hasOfficeFilter || in_array($officeFilter, $directOfficeIds, true)) {
+        $placeholders = implode(",", array_fill(0, count($directOfficeIds), "?"));
+        $directCond = "ct.office_id IN (" . $placeholders . ") AND ct.club_id IS NULL";
+        if ($hasOfficeFilter) {
+            $directCond .= " AND ct.office_id = ?";
+        }
+        $whereParts[] = "(" . $directCond . ")";
+        $bindValues = array_merge($bindValues, $directOfficeIds);
+        $bindTypes .= str_repeat("i", count($directOfficeIds));
+        if ($hasOfficeFilter) {
+            $bindValues[] = $officeFilter;
+            $bindTypes .= "i";
+        }
+    }
+}
+if ($clubIds) {
+    $placeholders = implode(",", array_fill(0, count($clubIds), "?"));
+    $clubCond = "ct.club_id IN (" . $placeholders . ")";
+    $clubBind = $clubIds;
+    $clubTypes = str_repeat("i", count($clubIds));
+    if ($clubFilter > 0 && in_array($clubFilter, $clubIds, true)) {
+        $clubCond .= " AND ct.club_id = ?";
+        $clubBind[] = $clubFilter;
+        $clubTypes .= "i";
+    }
+    $whereParts[] = "(" . $clubCond . ")";
+    $bindValues = array_merge($bindValues, $clubBind);
+    $bindTypes .= $clubTypes;
+}
+if ($isDsaUser) {
+    // DSA reviews SSC transactions for all courses (institutional, no course filter).
+    $whereParts[] = "(ct.office_id = ? AND ct.club_id IS NULL)";
+    $bindValues[] = $sscOfficeId;
+    $bindTypes .= "i";
+}
+if ($whereParts) {
+    $sql = "SELECT ct.clearance_id, ct.office_id, ct.club_id,
+                CASE WHEN ct.club_id IS NOT NULL THEN CONCAT('Institutional Club - ', c.club_name) ELSE o.office_name END AS office_name,
+                cr.school_year, cr.semester, s.student_number,
+                CONCAT(s.first_name, ' ', s.last_name) AS student_name, u.avatar_path, s.course, cc.course_code, ct.status, ct.remarks, ct.reviewed_at,
                 cr.overall_status, cr.requested_at
             FROM clearance_transactions ct
             INNER JOIN clearance_requests cr ON cr.clearance_id = ct.clearance_id
             INNER JOIN students s ON s.student_id = cr.student_id
             INNER JOIN users u ON u.user_id = s.user_id
             INNER JOIN offices o ON o.office_id = ct.office_id
-                WHERE ct.office_id IN (" . $placeholders . ")
-                  AND s.course = ?";
-
-            $bindValues = $officeIds;
-            $bindValues[] = $deanCourse;
-            $bindTypes = str_repeat("i", count($officeIds)) . "s";
-
-    if ($officeFilter > 0 && in_array($officeFilter, $officeIds, true)) {
-        $sql .= " AND ct.office_id = ?";
-        $bindTypes .= "i";
-        $bindValues[] = $officeFilter;
-    }
-
-    $sql .= " ORDER BY cr.requested_at DESC, s.student_number ASC";
+            LEFT JOIN institutional_clubs c ON c.club_id = ct.club_id
+            LEFT JOIN courses cc ON cc.course_name = s.course
+                WHERE (" . implode(" OR ", $whereParts) . ") AND cr.is_archived=0
+            ORDER BY cr.requested_at DESC, s.student_number ASC";
 
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param($bindTypes, ...$bindValues);
+    if ($bindTypes !== "" && $bindValues) $stmt->bind_param($bindTypes, ...$bindValues);
     $stmt->execute();
     $result = $stmt->get_result();
     while ($row = $result->fetch_assoc()) {
@@ -162,6 +363,34 @@ foreach ($reviewRows as $row) {
     }
 }
 
+// Group by request: one row per student (bulk decision per request).
+$groupedReviews = [];
+foreach ($reviewRows as $row) {
+    $cid = (int)($row["clearance_id"] ?? 0);
+    if ($cid <= 0) continue;
+    if (!isset($groupedReviews[$cid])) {
+        $groupedReviews[$cid] = [
+            "clearance_id" => $cid,
+            "student_name" => (string)($row["student_name"] ?? ""),
+            "student_number" => (string)($row["student_number"] ?? ""),
+            "course_code" => (string)($row["course_code"] ?? ""),
+            "school_year" => (string)($row["school_year"] ?? ""),
+            "semester" => (string)($row["semester"] ?? ""),
+            "overall_status" => (string)($row["overall_status"] ?? "pending"),
+            "avatar_path" => (string)($row["avatar_path"] ?? ""),
+            "office_name" => (string)($row["office_name"] ?? ""),
+            "steps" => 0,
+            "approved" => 0,
+            "reviewed_at" => null,
+        ];
+    }
+    $groupedReviews[$cid]["steps"]++;
+    if ((string)($row["status"] ?? "pending") === "approved") $groupedReviews[$cid]["approved"]++;
+    if (!empty($row["reviewed_at"]) && ($groupedReviews[$cid]["reviewed_at"] === null || $row["reviewed_at"] > $groupedReviews[$cid]["reviewed_at"])) {
+        $groupedReviews[$cid]["reviewed_at"] = $row["reviewed_at"];
+    }
+}
+
 require "_header.php";
 ?>
 <div class="page-heading">
@@ -174,7 +403,7 @@ require "_header.php";
 <?php if ($message !== ""): ?><div class="notice notice-success"><?= e($message) ?></div><?php endif; ?>
 <?php if ($error !== ""): ?><div class="notice notice-error"><?= e($error) ?></div><?php endif; ?>
 
-<?php if (!$officeIds): ?>
+<?php if (!$officeIds && !$clubIds && !$isDsaUser && !$directOfficeIds): ?>
     <div class="empty-panel">
         <i data-lucide="shield-alert"></i>
         <h3>No office assignment</h3>
@@ -192,7 +421,8 @@ require "_header.php";
             <i data-lucide="search"></i>
             <input type="search" placeholder="Search students..." aria-label="Search clearance reviews">
         </div>
-        <form method="get" class="course-filter-form">
+        <form method="get" class="course-filter-form" style="display:flex;gap:10px;flex-wrap:wrap;">
+            <?php if ($officeOptions): ?>
             <label class="review-filter-control course-filter-label">
                 <span>Signatory</span>
                 <span class="review-select-wrap">
@@ -205,6 +435,21 @@ require "_header.php";
                     <i data-lucide="chevron-down" aria-hidden="true"></i>
                 </span>
             </label>
+            <?php endif; ?>
+            <?php if ($clubOptions): ?>
+            <label class="review-filter-control course-filter-label">
+                <span>Club</span>
+                <span class="review-select-wrap">
+                    <select name="club_filter" onchange="this.form.submit()">
+                        <option value="">All Clubs</option>
+                        <?php foreach ($clubOptions as $clubOption): ?>
+                            <option value="<?= (int)$clubOption["club_id"] ?>" <?= $clubFilter === (int)$clubOption["club_id"] ? "selected" : "" ?>><?= e($clubOption["club_name"]) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <i data-lucide="chevron-down" aria-hidden="true"></i>
+                </span>
+            </label>
+            <?php endif; ?>
         </form>
         <label class="review-filter-control review-status-filter">
             <span>Status</span>
@@ -235,41 +480,48 @@ require "_header.php";
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($reviewRows as $row): ?>
-                        <tr>
+                    <?php foreach ($groupedReviews as $row): ?>
+                        <?php
+                        $ovStatus = (string)($row["overall_status"] ?? "pending");
+                        $rowCls = $ovStatus === "cleared" ? "st-approved" : ($ovStatus === "not_cleared" ? "st-rejected" : "st-pending");
+                        $stCls = $ovStatus === "cleared" ? "approved" : ($ovStatus === "not_cleared" ? "rejected" : "pending");
+                        $stLabel = $ovStatus === "cleared" ? "Cleared" : ($ovStatus === "not_cleared" ? "Not cleared" : "Pending");
+                        $defSt = ((int)$row["steps"] > 0 && (int)$row["approved"] === (int)$row["steps"]) ? "approved" : "pending";
+                        ?>
+                        <tr class="<?= $rowCls ?>">
                             <td>
                                 <div class="student-review-cell">
                                     <div class="student-review-avatar">
                                         <?php if (!empty($row["avatar_path"])): ?>
                                             <img src="../<?= e($row["avatar_path"]) ?>" alt="<?= e($row["student_name"]) ?> profile picture">
                                         <?php else: ?>
-                                            <i data-lucide="user-round"></i>
+                                            <span class="student-review-initials" aria-hidden="true"><?= e(initials_of($row["student_name"] ?? "")) ?></span>
                                         <?php endif; ?>
                                     </div>
                                     <div>
                                         <strong><?= e($row["student_name"]) ?></strong>
-                                        <small><?= e($row["student_number"]) ?> · <?= e($row["course"] ?: "No course") ?></small>
+                                        <small><?= e($row["student_number"] . (!empty($row["course_code"]) ? " - " . $row["course_code"] : "")) ?></small>
                                     </div>
                                 </div>
                             </td>
-                            <td><?= e($row["office_name"]) ?></td>
+                            <td><?php if ((int)$row["steps"] <= 1): ?><span class="office-pill"><?= e($row["office_name"]) ?></span><?php else: ?><span class="office-pill"><?= (int)$row["steps"] ?> offices</span><small><?= (int)$row["approved"] ?> of <?= (int)$row["steps"] ?> approved</small><?php endif; ?></td>
                             <td><?= e($row["school_year"]) ?></td>
                             <td><?= e($row["semester"]) ?></td>
-                            <td><span class="status status-<?= e($row["status"] === "approved" ? "approved" : ($row["status"] === "rejected" ? "rejected" : "pending")) ?>"><?= e(ucfirst($row["status"] ?: "pending")) ?></span></td>
+                            <td><span class="status status-<?= e($stCls) ?>"><?= e($stLabel) ?></span></td>
                             <td><?= e($row["reviewed_at"] ? date("M d, Y", strtotime($row["reviewed_at"])) : "Waiting") ?></td>
                             <td>
                                 <form method="post" class="review-action-form">
-                                    <input type="hidden" name="action" value="update_transaction">
+                                    <input type="hidden" name="action" value="bulk_update">
                                     <input type="hidden" name="clearance_id" value="<?= (int)$row["clearance_id"] ?>">
-                                    <input type="hidden" name="office_id" value="<?= (int)$row["office_id"] ?>">
                                     <div class="review-controls">
                                         <select name="status" aria-label="Review status">
-                                            <option value="pending" <?= ($row["status"] ?? "pending") === "pending" ? "selected" : "" ?>>Pending</option>
-                                            <option value="approved" <?= ($row["status"] ?? "pending") === "approved" ? "selected" : "" ?>>Approved</option>
-                                            <option value="rejected" <?= ($row["status"] ?? "pending") === "rejected" ? "selected" : "" ?>>Rejected</option>
+                                            <option value="pending" <?= $defSt === "pending" ? "selected" : "" ?>>Pending</option>
+                                            <option value="approved" <?= $defSt === "approved" ? "selected" : "" ?>>Approved</option>
+                                            <option value="rejected" <?= $defSt === "rejected" ? "selected" : "" ?>>Rejected</option>
                                         </select>
-                                        <textarea name="remarks" rows="2" placeholder="Add approval remarks..."><?= e($row["remarks"] ?? "") ?></textarea>
+                                        <textarea name="remarks" rows="2" placeholder="Add approval remarks..."></textarea>
                                         <button class="btn btn-primary" type="submit"><i data-lucide="save"></i>Save changes</button>
+                                        <?php if ((int)$row["steps"] > 1): ?><small style="color:var(--muted)">Applies to <?= (int)$row["steps"] ?> office steps</small><?php endif; ?>
                                     </div>
                                 </form>
                             </td>

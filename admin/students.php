@@ -68,24 +68,40 @@ if ($_SERVER["REQUEST_METHOD"] !== "POST" && isset($_GET["edit"])) {
 }
 
 $courseFilter = trim($_GET["course_filter"] ?? "");
+$yearFilter = trim($_GET["year_filter"] ?? "");
+$allowedYears = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
+if ($yearFilter !== "" && !in_array($yearFilter, $allowedYears, true)) $yearFilter = "";
 
 $studentCourseOptions = $conn->query(
     "SELECT DISTINCT course FROM students WHERE course IS NOT NULL AND course <> '' ORDER BY course ASC"
 );
 
-if ($courseFilter !== "") {
+if ($courseFilter !== "" || $yearFilter !== "") {
+    $whereParts = [];
+    $bindValues = [];
+    $bindTypes = "";
+    if ($courseFilter !== "") {
+        $whereParts[] = "course = ?";
+        $bindValues[] = $courseFilter;
+        $bindTypes .= "s";
+    }
+    if ($yearFilter !== "") {
+        $whereParts[] = "year_level = ?";
+        $bindValues[] = $yearFilter;
+        $bindTypes .= "s";
+    }
     $stmt = $conn->prepare(
         "SELECT student_id, student_number,
                 CONCAT(first_name, ' ', last_name) AS full_name,
                 course, year_level, status, created_at
          FROM students
-         WHERE course = ?
+         WHERE " . implode(" AND ", $whereParts) . "
          ORDER BY CASE
              WHEN student_number REGEXP '^SC-[0-9]+$' THEN CAST(SUBSTRING(student_number, 4) AS UNSIGNED)
              ELSE 0
          END ASC, student_number ASC"
     );
-    $stmt->bind_param("s", $courseFilter);
+    $stmt->bind_param($bindTypes, ...$bindValues);
     $stmt->execute();
     $students = $stmt->get_result();
     $stmt->close();
@@ -159,6 +175,18 @@ require "_header.php";
                     <?php if ($studentCourseOptions): while ($option = $studentCourseOptions->fetch_assoc()): ?>
                         <option value="<?= e($option["course"]) ?>" <?= $courseFilter === (string)$option["course"] ? "selected" : "" ?>><?= e($option["course"]) ?></option>
                     <?php endwhile; endif; ?>
+                </select>
+                <i data-lucide="chevron-down" aria-hidden="true"></i>
+            </span>
+        </label>
+        <label class="course-filter-label">
+            <span>Year level</span>
+            <span class="review-select-wrap">
+                <select name="year_filter" onchange="this.form.submit()">
+                    <option value="">All Year Levels</option>
+                    <?php foreach ($allowedYears as $yearOption): ?>
+                        <option value="<?= e($yearOption) ?>" <?= $yearFilter === $yearOption ? "selected" : "" ?>><?= e($yearOption) ?></option>
+                    <?php endforeach; ?>
                 </select>
                 <i data-lucide="chevron-down" aria-hidden="true"></i>
             </span>

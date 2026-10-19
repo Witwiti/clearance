@@ -58,8 +58,72 @@ if ($assignatoryNameColumn && $assignatoryNameColumn->num_rows === 0) {
 
 $conn->query("ALTER TABLE office_assignatories MODIFY user_id INT UNSIGNED NULL");
 
+if (PHP_SAPI !== 'cli' && !headers_sent()) {
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: SAMEORIGIN');
+    header('Referrer-Policy: no-referrer-when-downgrade');
+}
+
 $assignatoryOwnerColumn = $conn->query("SHOW COLUMNS FROM office_assignatories LIKE 'assigned_by_user_id'");
 if ($assignatoryOwnerColumn && $assignatoryOwnerColumn->num_rows === 0) {
     $conn->query("ALTER TABLE office_assignatories ADD COLUMN assigned_by_user_id INT UNSIGNED DEFAULT NULL AFTER assignatory_name");
 }
+
+// Department scoping for offices: deans only assign department offices for their course.
+// scope = general (all clearances) or department (dean-managed, e.g. Dept. Treasurer).
+// course_name = NULL/empty means shared across all departments; otherwise course-specific.
+$officeScopeColumn = $conn->query("SHOW COLUMNS FROM offices LIKE 'scope'");
+if ($officeScopeColumn && $officeScopeColumn->num_rows === 0) {
+    $conn->query("ALTER TABLE offices ADD COLUMN scope ENUM('general','department') NOT NULL DEFAULT 'general' AFTER description");
+}
+$officeCourseColumn = $conn->query("SHOW COLUMNS FROM offices LIKE 'course_name'");
+if ($officeCourseColumn && $officeCourseColumn->num_rows === 0) {
+    $conn->query("ALTER TABLE offices ADD COLUMN course_name VARCHAR(120) DEFAULT NULL AFTER scope");
+}
+// One-time backfill: tag Dept./Department offices as department so existing installs work.
+// Only runs while no department office exists, so admin changes are never overwritten.
+$deptSeedCheck = $conn->query("SELECT COUNT(*) AS c FROM offices WHERE scope = 'department'");
+if ($deptSeedCheck) {
+    $deptCount = (int)($deptSeedCheck->fetch_assoc()["c"] ?? 0);
+    $deptSeedCheck->close();
+    if ($deptCount === 0) {
+        $conn->query("UPDATE offices SET scope = 'department' WHERE office_name LIKE '%Dept.%' OR office_name LIKE '%Department%'");
+    }
+}
+
+// Extended schema for manuscript features: notifications, requirement types,
+// school terms, and clearance archive. Self-heals on every request.
+require_once __DIR__ . '/notifications.php';
+if (function_exists('ensure_extended_schema')) {
+    ensure_extended_schema($conn);
+}
+
+// Student profile extensions: contact details editable by the student.
+// Name, student number, course, and year level stay managed by the administrator.
+$studentProfileColumns = [
+    'suffix' => "ALTER TABLE students ADD COLUMN suffix VARCHAR(20) DEFAULT NULL AFTER last_name",
+    'gender' => "ALTER TABLE students ADD COLUMN gender VARCHAR(20) DEFAULT NULL AFTER suffix",
+    'birth_date' => "ALTER TABLE students ADD COLUMN birth_date DATE DEFAULT NULL AFTER gender",
+    'contact_number' => "ALTER TABLE students ADD COLUMN contact_number VARCHAR(30) DEFAULT NULL AFTER birth_date",
+    'address' => "ALTER TABLE students ADD COLUMN address VARCHAR(255) DEFAULT NULL AFTER contact_number",
+];
+foreach ($studentProfileColumns as $studentProfileColumn => $studentProfileAlter) {
+    $studentProfileCheck = $conn->query("SHOW COLUMNS FROM students LIKE '" . $studentProfileColumn . "'");
+    if ($studentProfileCheck && $studentProfileCheck->num_rows === 0) {
+        $conn->query($studentProfileAlter);
+    }
+    if ($studentProfileCheck) $studentProfileCheck->close();
+}
+
+// Account timestamps shown on the student profile (role, status, last login, updated at).
+$userLastLoginColumn = $conn->query("SHOW COLUMNS FROM users LIKE 'last_login'");
+if ($userLastLoginColumn && $userLastLoginColumn->num_rows === 0) {
+    $conn->query("ALTER TABLE users ADD COLUMN last_login TIMESTAMP NULL DEFAULT NULL AFTER status");
+}
+if ($userLastLoginColumn) $userLastLoginColumn->close();
+$userUpdatedAtColumn = $conn->query("SHOW COLUMNS FROM users LIKE 'updated_at'");
+if ($userUpdatedAtColumn && $userUpdatedAtColumn->num_rows === 0) {
+    $conn->query("ALTER TABLE users ADD COLUMN updated_at TIMESTAMP NULL DEFAULT NULL AFTER last_login");
+}
+if ($userUpdatedAtColumn) $userUpdatedAtColumn->close();
 ?>

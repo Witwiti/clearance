@@ -64,6 +64,15 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $stmt->execute();
         $stmt->close();
         $message = "Assignatory status updated.";
+    } elseif ($action === "delete" && $assignatoryId > 0) {
+        $stmt = $conn->prepare("DELETE FROM office_assignatories WHERE assignatory_id = ?");
+        $stmt->bind_param("i", $assignatoryId);
+        if ($stmt->execute() && $stmt->affected_rows > 0) {
+            $message = "Assignatory deleted.";
+        } else {
+            $error = "Unable to delete the assignatory.";
+        }
+        $stmt->close();
     }
 }
 
@@ -76,14 +85,16 @@ if ($_SERVER["REQUEST_METHOD"] !== "POST" && isset($_GET["edit"])) {
     $stmt->close();
 }
 
-$officeOptions = $conn->query("SELECT office_id, office_name FROM offices ORDER BY office_name");
+$officeOptions = $conn->query("SELECT office_id, office_name, scope FROM offices ORDER BY office_name");
 $userOptions = $conn->query("SELECT user_id, full_name, email FROM users WHERE role = 'office' ORDER BY full_name");
 
 $rows = $conn->query(
     "SELECT oa.assignatory_id, COALESCE(oa.assignatory_name, u.full_name) AS signatory_name, u.email,
-            o.office_name, oa.position, oa.status
+            o.office_name, oa.position, oa.status, oa.assigned_by_user_id,
+            owner.full_name AS assigned_by_name
      FROM office_assignatories oa
      LEFT JOIN users u ON u.user_id = oa.user_id
+     LEFT JOIN users owner ON owner.user_id = oa.assigned_by_user_id
      INNER JOIN offices o ON o.office_id = oa.office_id
      ORDER BY o.office_name, u.full_name"
 );
@@ -113,7 +124,7 @@ require "_header.php";
         <input type="hidden" name="assignatory_id" value="<?= (int)($editAssignatory["assignatory_id"] ?? 0) ?>">
         <label>User<select name="user_id"><option value="">No linked user account</option><?php if ($userOptions): while ($user = $userOptions->fetch_assoc()): ?><option value="<?= (int)$user["user_id"] ?>" <?= (int)($editAssignatory["user_id"] ?? 0) === (int)$user["user_id"] ? "selected" : "" ?>><?= e($user["full_name"] . " - " . $user["email"]) ?></option><?php endwhile; endif; ?></select></label>
         <label>Signatory name<input name="assignatory_name" value="<?= e($editAssignatory["assignatory_name"] ?? "") ?>" placeholder="Required when no user is selected"></label>
-        <label>Office<select name="office_id" required><option value="">Select office</option><?php if ($officeOptions): while ($office = $officeOptions->fetch_assoc()): ?><option value="<?= (int)$office["office_id"] ?>" <?= (int)($editAssignatory["office_id"] ?? 0) === (int)$office["office_id"] ? "selected" : "" ?>><?= e($office["office_name"]) ?></option><?php endwhile; endif; ?></select></label>
+        <label>Office<select name="office_id" required><option value="">Select office</option><?php if ($officeOptions): while ($office = $officeOptions->fetch_assoc()): ?><option value="<?= (int)$office["office_id"] ?>" <?= (int)($editAssignatory["office_id"] ?? 0) === (int)$office["office_id"] ? "selected" : "" ?>><?= e($office["office_name"] . (($office["scope"] ?? "general") === "department" ? " [Dept]" : "")) ?></option><?php endwhile; endif; ?></select></label>
         <label>Position<input name="position" required value="<?= e($editAssignatory["position"] ?? "Office Assignatory") ?>"></label>
         <label>Status<select name="status"><option value="active" <?= ($editAssignatory["status"] ?? "active") === "active" ? "selected" : "" ?>>Active</option><option value="inactive" <?= ($editAssignatory["status"] ?? "active") === "inactive" ? "selected" : "" ?>>Inactive</option></select></label>
         <button class="btn btn-primary" type="submit"><i data-lucide="save"></i><?= $editAssignatory ? "Save changes" : "Add assignatory" ?></button>
@@ -123,7 +134,7 @@ require "_header.php";
 <div class="table-card">
     <div class="table-wrapper">
         <table>
-            <thead><tr><th>Name</th><th>Email</th><th>Office</th><th>Position</th><th>Status</th><th>Action</th></tr></thead>
+            <thead><tr><th>Name</th><th>Email</th><th>Office</th><th>Position</th><th>Assigned By</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
             <?php if ($rows && $rows->num_rows): ?>
                 <?php while ($row = $rows->fetch_assoc()): ?>
@@ -132,6 +143,7 @@ require "_header.php";
                         <td><?= e($row["email"]) ?></td>
                         <td><?= e($row["office_name"]) ?></td>
                         <td><?= e($row["position"]) ?></td>
+                        <td><?= e($row["assigned_by_name"] ?: "—") ?></td>
                         <td><span class="status status-<?= e($row["status"]) ?>"><?= e(ucfirst($row["status"])) ?></span></td>
                         <td class="action-group">
                             <a class="table-action" href="assignatories.php?edit=<?= (int)$row["assignatory_id"] ?>#assignatory-form">Edit</a>
@@ -140,11 +152,16 @@ require "_header.php";
                                 <input type="hidden" name="assignatory_id" value="<?= (int)$row["assignatory_id"] ?>">
                                 <button class="table-action" type="submit"><?= $row["status"] === "active" ? "Deactivate" : "Activate" ?></button>
                             </form>
+                            <form method="post" data-delete-confirm="Delete <?= e($row["signatory_name"]) ?>? This will remove it from student clearance records.">
+                                <input type="hidden" name="action" value="delete">
+                                <input type="hidden" name="assignatory_id" value="<?= (int)$row["assignatory_id"] ?>">
+                                <button class="table-action table-action-danger" type="submit">Delete</button>
+                            </form>
                         </td>
                     </tr>
                 <?php endwhile; ?>
             <?php else: ?>
-                <tr><td colspan="6" class="empty-state">No assignatories found.</td></tr>
+                <tr><td colspan="7" class="empty-state">No assignatories found.</td></tr>
             <?php endif; ?>
             </tbody>
         </table>

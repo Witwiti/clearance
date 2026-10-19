@@ -116,6 +116,7 @@ require "_header.php";
                     <label class="configuration-field configuration-field-wide">Form title<input name="clearance_form_title" required value="<?= e($settings["clearance_form_title"]) ?>"></label>
                     <label class="configuration-field configuration-field-wide">Term<input name="clearance_term" required value="<?= e($settings["clearance_term"]) ?>"></label>
                 </div>
+                <p class="muted" style="font-size:12px;margin-top:6px;">Tip: manage semesters properly in <a href="school_terms.php">School Terms</a> — setting a current term there updates this field automatically.</p>
             </section>
 
             <div class="configuration-actions">

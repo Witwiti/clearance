@@ -33,6 +33,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             );
             $stmt->bind_param("sssi", $title, $content, $status, $announcementId);
             if ($stmt->execute()) {
+                $stmt->close();
+                if ($status === "published" && function_exists('notify_role')) {
+                    notify_role($conn, 'student', 'New announcement: ' . $title, mb_substr($content, 0, 180), 'announcement', $announcementId);
+                    notify_role($conn, 'office', 'New announcement: ' . $title, mb_substr($content, 0, 180), 'announcement', $announcementId);
+                }
                 $_SESSION["flash_message"] = "Announcement updated.";
                 header("Location: announcements.php");
                 exit;
@@ -45,7 +50,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             );
             $stmt->bind_param("sssi", $title, $content, $status, $createdBy);
             $stmt->execute();
+            $newId = $stmt->insert_id;
             $stmt->close();
+            if ($status === "published" && function_exists('notify_role')) {
+                notify_role($conn, 'student', 'New announcement: ' . $title, mb_substr($content, 0, 180), 'announcement', (int)$newId);
+                notify_role($conn, 'office', 'New announcement: ' . $title, mb_substr($content, 0, 180), 'announcement', (int)$newId);
+            }
             $_SESSION["flash_message"] = "Announcement created.";
             header("Location: announcements.php");
             exit;
@@ -65,6 +75,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $stmt->bind_param("i", $announcementId);
         $stmt->execute();
         $stmt->close();
+        // If it just became published, notify.
+        $chk = $conn->prepare("SELECT title, content, status FROM announcements WHERE announcement_id=? LIMIT 1");
+        $chk->bind_param("i", $announcementId); $chk->execute();
+        $crow = $chk->get_result()->fetch_assoc(); $chk->close();
+        if (($crow["status"] ?? "") === "published" && function_exists('notify_role')) {
+            notify_role($conn, 'student', 'New announcement: ' . ($crow["title"] ?? ""), mb_substr((string)($crow["content"] ?? ""), 0, 180), 'announcement', $announcementId);
+            notify_role($conn, 'office', 'New announcement: ' . ($crow["title"] ?? ""), mb_substr((string)($crow["content"] ?? ""), 0, 180), 'announcement', $announcementId);
+        }
         $message = "Announcement status updated.";
     }
 }

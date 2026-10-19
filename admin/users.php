@@ -239,8 +239,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $linkedRecordsDeleted = $stmt->execute();
                 $stmt->close();
             } elseif ($target["role"] === "office") {
-                $stmt = $conn->prepare("DELETE FROM office_assignatories WHERE user_id = ?");
-                $stmt->bind_param("i", $userId);
+                $stmt = $conn->prepare("DELETE FROM office_assignatories WHERE user_id = ? OR assigned_by_user_id = ?");
+                $stmt->bind_param("ii", $userId, $userId);
                 $linkedRecordsDeleted = $stmt->execute();
                 $stmt->close();
             }
@@ -319,7 +319,7 @@ require "_header.php";
             <label>Full name<input name="full_name" required value="<?= e($editUser["full_name"] ?? "") ?>"></label>
             <label>Username<input name="username" required value="<?= e($editUser["username"] ?? "") ?>"></label>
             <label>Email<input type="email" name="email" required value="<?= e($editUser["email"] ?? "") ?>"></label>
-            <label>Password<input type="password" name="password" <?= $editUser ? "placeholder=\"Leave blank to keep current\"" : "required" ?>></label>
+            <label>Password<span class="password-field"><input type="password" name="password" <?= $editUser ? "placeholder=\"Leave blank to keep current\"" : "required" ?>><button type="button" class="password-toggle" aria-label="Show password"><i data-lucide="eye"></i></button></span></label>
                 <label>Role<select name="role" id="userRole"><option value="admin" <?= ($editUser["role"] ?? "") === "admin" ? "selected" : "" ?>>Admin</option><option value="student" <?= ($editUser["role"] ?? "student") === "student" ? "selected" : "" ?>>Student</option><option value="office" <?= ($editUser["role"] ?? "") === "office" ? "selected" : "" ?>>Office</option></select></label>
             <label>Status<select name="status"><option value="active" <?= ($editUser["status"] ?? "active") === "active" ? "selected" : "" ?>>Active</option><option value="inactive" <?= ($editUser["status"] ?? "active") === "inactive" ? "selected" : "" ?>>Inactive</option></select></label>
             <label class="checkbox-field office-only-field <?= ($editUser["role"] ?? "student") === "office" ? "" : "is-hidden" ?>" <?= ($editUser["role"] ?? "student") === "office" ? "" : "hidden" ?> style="<?= ($editUser["role"] ?? "student") === "office" ? "" : "display: none !important;" ?>"><input type="checkbox" name="college_dean" id="collegeDeanToggle" value="1" <?= !empty($editUser["college_dean"]) ? "checked" : "" ?>> College dean (Office user)</label>
@@ -376,7 +376,7 @@ require "_header.php";
             <?php if ($users && $users->num_rows): ?>
                 <?php while ($row = $users->fetch_assoc()): ?>
                     <tr data-role="<?= e($row["role"]) ?>">
-                        <td><div class="user-cell"><img src="<?= e($row["avatar_path"] ? "../" . $row["avatar_path"] : "../assets/images/system_logo.jpg") ?>" alt=""><strong><?= e($row["full_name"]) ?></strong></div></td>
+                        <td><div class="user-cell"><?php if (!empty($row["avatar_path"])): ?><img src="<?= e("../" . $row["avatar_path"]) ?>" alt=""><strong><?= e($row["full_name"]) ?></strong><?php else: ?><span class="user-cell-avatar" aria-hidden="true"><?= e(initials_of($row["full_name"] ?? "")) ?></span><strong><?= e($row["full_name"]) ?></strong><?php endif; ?></div></td>
                         <td><?= e($row["username"]) ?></td>
                         <td><?= e($row["email"]) ?></td>
                         <td><span class="role-badge"><?= e(ucfirst($row["role"])) ?></span></td>

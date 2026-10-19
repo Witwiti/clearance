@@ -60,7 +60,8 @@ if (isset($_SESSION['user_id'], $_SESSION['role'])) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Student Clearance Management System</title>
-    <link rel="stylesheet" href="assets/css/auth.css">
+    <link rel="stylesheet" href="assets/css/auth.css?v=20261029">
+    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="landing-page">
     <main class="landing-shell">
@@ -71,6 +72,7 @@ if (isset($_SESSION['user_id'], $_SESSION['role'])) {
             </a>
             <div class="landing-nav-actions">
                 <span class="landing-status"><span></span> Portal online</span>
+                <button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch to dark mode" aria-pressed="false"><i data-lucide="moon"></i></button>
                 <a class="btn btn-primary" href="admin/login.php">Sign in</a>
             </div>
         </nav>
@@ -100,6 +102,27 @@ if (isset($_SESSION['user_id'], $_SESSION['role'])) {
             <article><span class="feature-number">03</span><h2>Finish smoothly</h2><p>Move from pending to cleared with fewer follow-ups and delays.</p></article>
         </section>
     </main>
+    <script>
+        lucide.createIcons();
+        (function () {
+            var btn = document.getElementById("themeToggle");
+            var paint = function (dark) {
+                document.body.classList.toggle("dark", dark);
+                if (!btn) return;
+                btn.innerHTML = '<i data-lucide="' + (dark ? "sun" : "moon") + '"></i>';
+                btn.setAttribute("aria-label", dark ? "Switch to light mode" : "Switch to dark mode");
+                btn.setAttribute("aria-pressed", dark ? "true" : "false");
+                if (window.lucide) lucide.createIcons();
+            };
+            var dark = false;
+            try { dark = localStorage.getItem("clearance-theme") === "dark"; } catch (e) {}
+            paint(dark);
+            if (btn) btn.addEventListener("click", function () {
+                dark = !document.body.classList.contains("dark");
+                try { localStorage.setItem("clearance-theme", dark ? "dark" : "light"); } catch (e) {}
+                paint(dark);
+            });
+        })();
+    </script>
 </body>
 </html>
-?>

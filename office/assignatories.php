@@ -67,8 +67,21 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         if ($assignatoryName === "" || $officeId <= 0 || $position === "") {
             $error = "Signatory name, office, and position are required.";
         } else {
-                $duplicateStmt = $conn->prepare("SELECT assignatory_id FROM office_assignatories WHERE assignatory_name = ? AND office_id = ? AND assignatory_id <> ? LIMIT 1");
-                $duplicateStmt->bind_param("sii", $assignatoryName, $officeId, $assignatoryId);
+                // Department offices plus the Head/Dean seat: a dean may name the
+                // Head/Dean for their own course (course-scoped by owner, so each
+                // department can show its own head). Shared across all courses otherwise.
+                $allowedStmt = $conn->prepare("SELECT office_id FROM offices WHERE office_id = ? AND status = 'active' AND (scope = 'department' OR office_name LIKE '%Head/Dean%' OR office_name LIKE '%Head / Dean%') LIMIT 1");
+                $allowedStmt->bind_param("i", $officeId);
+                $allowedStmt->execute();
+                $allowedResult = $allowedStmt->get_result();
+                $isAllowed = $allowedResult && $allowedResult->num_rows > 0;
+                $allowedStmt->close();
+
+                if (!$isAllowed) {
+                    $error = "This office is not available for your department. Ask the administrator to tag it as a Department office.";
+                } else {
+                $duplicateStmt = $conn->prepare("SELECT assignatory_id FROM office_assignatories WHERE assignatory_name = ? AND office_id = ? AND assigned_by_user_id = ? AND assignatory_id <> ? LIMIT 1");
+                $duplicateStmt->bind_param("siii", $assignatoryName, $officeId, $_SESSION["user_id"], $assignatoryId);
                 $duplicateStmt->execute();
                 $duplicateResult = $duplicateStmt->get_result();
                 $duplicateExists = $duplicateResult && $duplicateResult->num_rows > 0;
@@ -97,6 +110,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     else $error = "Unable to add the assignatory.";
                     $stmt->close();
                 }
+                }
         }
     } elseif ($action === "toggle" && $assignatoryId > 0) {
         $newStatus = ($_POST["new_status"] ?? "") === "inactive" ? "inactive" : "active";
@@ -123,7 +137,32 @@ if ($_SERVER["REQUEST_METHOD"] !== "POST" && isset($_GET["edit"])) {
     $stmt->close();
 }
 
-$officeOptions = $conn->query("SELECT office_id, office_name FROM offices ORDER BY office_name");
+$officeOptionsStmt = $conn->prepare("SELECT office_id, office_name FROM offices WHERE status = 'active' AND (scope = 'department' OR office_name LIKE '%Head/Dean%' OR office_name LIKE '%Head / Dean%') ORDER BY office_name");
+$officeOptionsStmt->execute();
+$officeOptionsResult = $officeOptionsStmt->get_result();
+$deptOfficeList = [];
+if ($officeOptionsResult) {
+    while ($officeRow = $officeOptionsResult->fetch_assoc()) {
+        $deptOfficeList[] = $officeRow;
+    }
+}
+$officeOptionsStmt->close();
+// Keep the currently-edited office visible even if its scope changed after assignment.
+if (!empty($editAssignatory["office_id"])) {
+    $editOfficeId = (int)$editAssignatory["office_id"];
+    $found = false;
+    foreach ($deptOfficeList as $existing) {
+        if ((int)$existing["office_id"] === $editOfficeId) { $found = true; break; }
+    }
+    if (!$found) {
+        $currentOfficeStmt = $conn->prepare("SELECT office_id, office_name FROM offices WHERE office_id = ? LIMIT 1");
+        $currentOfficeStmt->bind_param("i", $editOfficeId);
+        $currentOfficeStmt->execute();
+        $currentOfficeRow = $currentOfficeStmt->get_result()->fetch_assoc();
+        $currentOfficeStmt->close();
+        if ($currentOfficeRow) $deptOfficeList[] = $currentOfficeRow;
+    }
+}
 
 $rows = $conn->prepare(
     "SELECT oa.assignatory_id, COALESCE(oa.assignatory_name, u.full_name) AS signatory_name, u.email, o.office_name, oa.position, oa.status
@@ -160,9 +199,9 @@ require "_header.php";
     <form method="post">
         <input type="hidden" name="action" value="save">
         <input type="hidden" name="assignatory_id" value="<?= (int)($editAssignatory["assignatory_id"] ?? 0) ?>">
-        <label>Signatory name<input name="assignatory_name" required value="<?= e($editAssignatory["assignatory_name"] ?? "") ?>" placeholder="e.g. Francis Villarin"></label>
-        <label>Office<select name="office_id" required><option value="">Select office</option><?php if ($officeOptions): while ($office = $officeOptions->fetch_assoc()): ?><option value="<?= (int)$office["office_id"] ?>" <?= (int)($editAssignatory["office_id"] ?? 0) === (int)$office["office_id"] ? "selected" : "" ?>><?= e($office["office_name"]) ?></option><?php endwhile; endif; ?></select></label>
-        <label>Position<input name="position" required value="<?= e($editAssignatory["position"] ?? "Office Assignatory") ?>"></label>
+        <label>Signatory name<input name="assignatory_name" required value="<?= e($editAssignatory["assignatory_name"] ?? "") ?>" placeholder="e.g. Dept. Treasurer name"></label>
+        <label>Office (department only)<select name="office_id" required><option value="">Select department office</option><?php foreach ($deptOfficeList as $office): ?><option value="<?= (int)$office["office_id"] ?>" <?= (int)($editAssignatory["office_id"] ?? 0) === (int)$office["office_id"] ? "selected" : "" ?>><?= e($office["office_name"]) ?></option><?php endforeach; ?></select><small class="field-help">Showing department offices plus the Head/Dean seat (e.g. Dept. Treasurer, Dept. Club, Dept. Head/Dean). Each dean assigns their own signatory — it shows only for students of your course.</small></label>
+        <label>Position<input name="position" required value="<?= e($editAssignatory["position"] ?? "Office Assignatory") ?>" placeholder="e.g. Dept. Treasurer"></label>
         <label>Status<select name="status"><option value="active" <?= ($editAssignatory["status"] ?? "active") === "active" ? "selected" : "" ?>>Active</option><option value="inactive" <?= ($editAssignatory["status"] ?? "active") === "inactive" ? "selected" : "" ?>>Inactive</option></select></label>
         <button class="btn btn-primary" type="submit"><i data-lucide="save"></i><?= $editAssignatory ? "Save changes" : "Add assignatory" ?></button>
     </form>
