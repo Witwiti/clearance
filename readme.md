@@ -1,5 +1,8 @@
 # Student Clearance Management System
 
+**Live site:** https://cyan-newt-407026.hostingersite.com/ · Admin login: `/admin/login.php` (email + password, default password `scms1234` — change it after the first sign-in).
+**Hosting:** Hostinger hPanel (PHP 8.1+, MySQL, LiteSpeed) — see `DEPLOY.md` for the full setup guide (database, Git deploy, `config/db.local.php`, permissions, go-live checklist).
+
 A role-based PHP/MySQLi web portal for Christ The King College De Maranding, Inc. (CKCM) that digitizes the student clearance process. Students submit one clearance request per school year + semester, each request fans out to every active office, offices/deans approve or reject with remarks, and admins monitor overall status, users, offices, courses, announcements, and the printable clearance form.
 
 ## 1. Tech Stack and Requirements
