@@ -18,10 +18,18 @@ if (is_file($localConfigPath)) {
     if (is_array($loadedConfig)) $localConfig = $loadedConfig;
 }
 
-$host = (string)($localConfig["host"] ?? (getenv("DB_HOST") ?: "localhost"));
-$username = (string)($localConfig["username"] ?? (getenv("DB_USER") ?: "root"));
-$password = (string)($localConfig["password"] ?? (getenv("DB_PASSWORD") ?: ""));
-$database = (string)($localConfig["name"] ?? (getenv("DB_NAME") ?: "school_clearance_db"));
+// Environment variables: real process env (hPanel env vars / SetEnv in .htaccess),
+// $_ENV or $_SERVER - whichever the host provides.
+$readEnv = function (string $key): string {
+    $value = getenv($key);
+    if ($value === false || $value === "") $value = $_ENV[$key] ?? ($_SERVER[$key] ?? "");
+    return trim((string)$value);
+};
+
+$host = (string)($localConfig["host"] ?? ($readEnv("DB_HOST") ?: "localhost"));
+$username = (string)($localConfig["username"] ?? ($readEnv("DB_USER") ?: "root"));
+$password = (string)($localConfig["password"] ?? $readEnv("DB_PASSWORD"));
+$database = (string)($localConfig["name"] ?? ($readEnv("DB_NAME") ?: "school_clearance_db"));
 
 try {
     $conn = new mysqli($host, $username, $password, $database);

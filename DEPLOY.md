@@ -78,6 +78,8 @@ git checkout main
 
 ## 4. Point the app at the database
 
+### Option 1 - `config/db.local.php` on the server (recommended)
+
 On the server, create `config/db.local.php` (this file is **git-ignored**, so a later
 `git pull` never overwrites it). Copy `config/db.local.example.php` and fill in the
 values from step 2:
@@ -90,6 +92,23 @@ return [
     "password" => "the-password-you-chose",
     "name" => "u123456789_scms",
 ];
+```
+
+### Option 2 - environment variables
+
+The app also reads `DB_HOST`, `DB_USER`, `DB_PASSWORD` and `DB_NAME` from the process
+environment, from `$_ENV` or from `$_SERVER`. Two ways to provide them:
+
+- Hostinger's deployment wizard → **Environment Variables → Add** (one variable per key).
+  Note: these are guaranteed for the build step; if the site still cannot connect, PHP
+  is not seeing them - use option 1 or option 3.
+- `.htaccess` in the document root (works on LiteSpeed/Apache):
+
+```apache
+SetEnv DB_HOST localhost
+SetEnv DB_USER u123456789_scms
+SetEnv DB_PASSWORD your-password
+SetEnv DB_NAME u123456789_scms
 ```
 
 The app resolves the credentials in this order:
