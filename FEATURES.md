@@ -25,7 +25,7 @@ Project root: `C:\xampp\htdocs\clearance` · Open via `http://localhost/clearanc
 4. **Overall status recalculation** after every review (and self-healed on each admin clearance page load):
    - `total==0` → `pending`; any `rejected` → `not_cleared`; all `approved` → `cleared`; else `pending`.
 5. Student tracks per-office status, remarks, `reviewed_at`, progress % (`approved/total`), and prints the form.
-6. **Requirement compliance by the office** (`office/reviews.php` → *Requirements* panel per queue row):
+6. **Requirement compliance by the office** (`office/reviews.php` → *Checklist* column, "Requirement checklist" panel per queue row):
    - The office marks its own `clearance_items` as complied, or un-marks one to send it back for action.
    - Works in both directions — a student who already complied can be reopened: un-marking a **required** item sets the office step back to `pending`, the overall status is recalculated (`cleared` → `pending`) and the student gets a `requirements_update` notification.
    - Scoped: only the offices the reviewer is authorized for are loaded, and only those items can be updated (an office can never touch another office's requirements).

@@ -635,7 +635,7 @@ require "_header.php";
                         <th>School Year</th>
                         <th>Semester</th>
                         <th>Status</th>
-                        <th>Requirements</th>
+                        <th>Checklist</th>
                         <th>Updated</th>
                         <th>Action</th>
                     </tr>
@@ -682,7 +682,7 @@ require "_header.php";
                                     <details class="review-requirements">
                                         <summary>
                                             <i data-lucide="list-checks"></i>
-                                            Requirements
+                                            Requirement checklist
                                             <span class="req-counter"><?= (int)$itemDone ?>/<?= (int)$itemTotal ?> complied</span>
                                         </summary>
                                         <form method="post" class="review-requirements-form">
@@ -701,7 +701,7 @@ require "_header.php";
                                                     </span>
                                                 </label>
                                             <?php endforeach; ?>
-                                            <button class="btn btn-primary review-requirements-save" type="submit"><i data-lucide="save"></i>Save requirements</button>
+                                            <button class="btn btn-primary review-requirements-save" type="submit"><i data-lucide="save"></i>Save checklist</button>
                                             <small class="review-requirements-hint">Uncheck a complied requirement to send it back for action.</small>
                                         </form>
                                     </details>

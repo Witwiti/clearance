@@ -1828,12 +1828,12 @@ tbody tr:last-child td {
 
 .review-table th:nth-child(1),
 .review-table td:nth-child(1) {
-    width: 22%;
+    width: 20%;
 }
 
 .review-table th:nth-child(2),
 .review-table td:nth-child(2) {
-    width: 13%;
+    width: 12%;
 }
 
 .review-table th:nth-child(3),
@@ -1845,12 +1845,12 @@ tbody tr:last-child td {
 
 .review-table th:nth-child(5),
 .review-table td:nth-child(5) {
-    width: 8%;
+    width: 9%;
 }
 
 .review-table th:nth-child(6),
 .review-table td:nth-child(6) {
-    width: 14%;
+    width: 18%;
     white-space: normal;
 }
 
@@ -1861,7 +1861,7 @@ tbody tr:last-child td {
 
 .review-table th:nth-child(8),
 .review-table td:nth-child(8) {
-    width: 19%;
+    width: 17%;
     white-space: normal;
 }
 
@@ -3657,9 +3657,13 @@ input[type="password"]::-ms-clear {
 /* Office requirement compliance panel (per office, per request). */
 .review-requirements-cell {
     vertical-align: top;
+    overflow: hidden;
 }
 
 .review-requirements {
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
     border: 1px solid var(--border);
     border-radius: 10px;
     background: var(--surface);
@@ -3668,13 +3672,15 @@ input[type="password"]::-ms-clear {
 
 .review-requirements > summary {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 7px;
+    gap: 6px;
     cursor: pointer;
     font-size: 12px;
     font-weight: 700;
     color: var(--text);
     list-style: none;
+    overflow-wrap: anywhere;
 }
 
 .review-requirements > summary::-webkit-details-marker {
@@ -3688,6 +3694,7 @@ input[type="password"]::-ms-clear {
 .review-requirements > summary svg {
     width: 15px;
     height: 15px;
+    flex: 0 0 15px;
 }
 
 .review-requirements[open] > summary {
@@ -3710,12 +3717,14 @@ input[type="password"]::-ms-clear {
 .review-requirements-form {
     display: grid;
     gap: 8px;
+    min-width: 0;
 }
 
 .review-requirement-item {
     display: flex;
     align-items: flex-start;
     gap: 8px;
+    min-width: 0;
     padding: 7px 8px;
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -3735,21 +3744,25 @@ input[type="password"]::-ms-clear {
     display: grid;
     gap: 2px;
     min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .review-requirement-text strong {
     font-size: 12.5px;
     line-height: 1.3;
+    overflow-wrap: anywhere;
 }
 
 .review-requirement-text small {
     color: var(--muted);
     font-size: 11px;
     line-height: 1.35;
+    overflow-wrap: anywhere;
 }
 
 .review-requirements-save {
     width: 100%;
+    max-width: 100%;
     justify-content: center;
 }
 
@@ -3757,6 +3770,7 @@ input[type="password"]::-ms-clear {
     color: var(--muted);
     font-size: 11px;
     line-height: 1.35;
+    overflow-wrap: anywhere;
 }
 
 /* Student clearance mobile: card rows like reference (Office | In Charge | Signature). */
