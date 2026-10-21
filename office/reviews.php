@@ -516,11 +516,14 @@ foreach ($reviewRows as $row) {
             "office_name" => (string)($row["office_name"] ?? ""),
             "steps" => 0,
             "approved" => 0,
+            "rejected" => 0,
             "reviewed_at" => null,
         ];
     }
     $groupedReviews[$cid]["steps"]++;
-    if ((string)($row["status"] ?? "pending") === "approved") $groupedReviews[$cid]["approved"]++;
+    $stepStatus = (string)($row["status"] ?? "pending");
+    if ($stepStatus === "approved") $groupedReviews[$cid]["approved"]++;
+    elseif ($stepStatus === "rejected") $groupedReviews[$cid]["rejected"]++;
     if (!empty($row["reviewed_at"]) && ($groupedReviews[$cid]["reviewed_at"] === null || $row["reviewed_at"] > $groupedReviews[$cid]["reviewed_at"])) {
         $groupedReviews[$cid]["reviewed_at"] = $row["reviewed_at"];
     }
@@ -587,10 +590,17 @@ if ($groupedReviews) {
                 $requestSteps[$cid] = ["total" => 0, "approved" => 0, "rejected" => 0, "pending" => 0, "offices" => []];
             }
             $requestSteps[$cid]["total"]++;
-            if ($stepStatus === "approved") $requestSteps[$cid]["approved"]++;
-            elseif ($stepStatus === "rejected") $requestSteps[$cid]["rejected"]++;
-            else $requestSteps[$cid]["pending"]++;
-            $requestSteps[$cid]["offices"][] = (string)($step["office_name"] ?: "Office") . " — " . $stepStatus;
+            $officeLabel = (string)($step["office_name"] ?: "Office");
+            if ($stepStatus === "approved") {
+                $requestSteps[$cid]["approved"]++;
+                $requestSteps[$cid]["offices"]["approved"][] = $officeLabel . " — approved";
+            } elseif ($stepStatus === "rejected") {
+                $requestSteps[$cid]["rejected"]++;
+                $requestSteps[$cid]["offices"]["rejected"][] = $officeLabel . " — rejected";
+            } else {
+                $requestSteps[$cid]["pending"]++;
+                $requestSteps[$cid]["offices"]["pending"][] = $officeLabel . " — pending";
+            }
         }
         $stepsStmt->close();
     }
@@ -661,7 +671,7 @@ require "_header.php";
             <span class="review-select-wrap">
                 <select data-filter="status" aria-label="Filter reviews by status">
                     <option value="all_statuses">All Statuses</option>
-                    <option value="approved">Cleared</option>
+                    <option value="approved">Approved</option>
                     <option value="pending">Pending</option>
                     <option value="rejected">Rejected</option>
                 </select>
@@ -679,7 +689,7 @@ require "_header.php";
                         <th>Office</th>
                         <th>School Year</th>
                         <th>Semester</th>
-                        <th>Overall status</th>
+                        <th>Status</th>
                         <th>Checklist</th>
                         <th>Updated</th>
                         <th>Action</th>
@@ -688,11 +698,32 @@ require "_header.php";
                 <tbody>
                     <?php foreach ($groupedReviews as $row): ?>
                         <?php
+                        // The pill shows the reviewer's OWN office decision for this request.
+                        $ownSteps = (int)$row["steps"];
+                        $ownApproved = (int)$row["approved"];
+                        $ownRejected = (int)$row["rejected"];
+                        if ($ownRejected > 0) {
+                            $stCls = "rejected";
+                            $stLabel = "Rejected";
+                        } elseif ($ownSteps > 0 && $ownApproved === $ownSteps) {
+                            $stCls = "approved";
+                            $stLabel = "Approved";
+                        } else {
+                            $stCls = "pending";
+                            $stLabel = "Pending";
+                        }
+                        $rowCls = "st-" . $stCls;
+                        $defSt = $stCls;
+                        // The request-level status stays available as a hover hint.
                         $ovStatus = (string)($row["overall_status"] ?? "pending");
-                        $rowCls = $ovStatus === "cleared" ? "st-approved" : ($ovStatus === "not_cleared" ? "st-rejected" : "st-pending");
-                        $stCls = $ovStatus === "cleared" ? "approved" : ($ovStatus === "not_cleared" ? "rejected" : "pending");
-                        $stLabel = $ovStatus === "cleared" ? "Cleared" : ($ovStatus === "not_cleared" ? "Not cleared" : "Pending");
-                        $defSt = ((int)$row["steps"] > 0 && (int)$row["approved"] === (int)$row["steps"]) ? "approved" : "pending";
+                        $ovLabel = $ovStatus === "cleared" ? "Cleared" : ($ovStatus === "not_cleared" ? "Not cleared" : "Pending");
+                        $stepStats = $requestSteps[(int)$row["clearance_id"]] ?? ["total" => 0, "approved" => 0, "rejected" => 0, "pending" => 0, "offices" => ["approved" => [], "rejected" => [], "pending" => []]];
+                        $stepOffices = $stepStats["offices"] ?? ["approved" => [], "rejected" => [], "pending" => []];
+                        $statusHint = "Overall request status: " . $ovLabel
+                            . " (" . (int)$stepStats["approved"] . " of " . (int)$stepStats["total"] . " offices approved"
+                            . ((int)$stepStats["rejected"] > 0 ? ", " . (int)$stepStats["rejected"] . " rejected" : "")
+                            . ")\n"
+                            . implode("\n", array_merge($stepOffices["rejected"] ?? [], $stepOffices["pending"] ?? [], $stepOffices["approved"] ?? []));
                         ?>
                         <tr class="<?= $rowCls ?>">
                             <td>
@@ -714,17 +745,9 @@ require "_header.php";
                             <td><?= e($row["school_year"]) ?></td>
                             <td><?= e($row["semester"]) ?></td>
                             <td class="review-status-cell">
-                                <span class="status status-<?= e($stCls) ?>"><?= e($stLabel) ?></span>
-                                <?php $stepStats = $requestSteps[(int)$row["clearance_id"]] ?? ["total" => 0, "approved" => 0, "rejected" => 0, "pending" => 0, "offices" => []]; ?>
-                                <?php if ((int)$stepStats["total"] > 0): ?>
-                                    <small class="review-status-breakdown" title="<?= e(implode("\n", $stepStats["offices"])) ?>">
-                                        <?= (int)$stepStats["approved"] ?> of <?= (int)$stepStats["total"] ?> offices approved
-                                    </small>
-                                    <?php if ((int)$stepStats["rejected"] > 0): ?>
-                                        <small class="review-status-detail is-rejected"><?= (int)$stepStats["rejected"] ?> office rejected — action needed</small>
-                                    <?php elseif ((int)$stepStats["pending"] > 0): ?>
-                                        <small class="review-status-detail"><?= (int)$stepStats["pending"] ?> still waiting on other offices</small>
-                                    <?php endif; ?>
+                                <span class="status status-<?= e($stCls) ?>" title="<?= e($statusHint) ?>"><?= e($stLabel) ?></span>
+                                <?php if ($ownSteps > 1): ?>
+                                    <small class="review-status-detail"><?= (int)$ownApproved ?> of <?= (int)$ownSteps ?> of your offices approved</small>
                                 <?php endif; ?>
                             </td>
                             <td class="review-requirements-cell">
@@ -735,12 +758,17 @@ require "_header.php";
                                     <?php
                                     $itemTotal = count($rowItems);
                                     $itemDone = 0;
-                                    foreach ($rowItems as $rowItem) if (!empty($rowItem["is_completed"])) $itemDone++;
+                                    $panelOffices = [];
+                                    foreach ($rowItems as $rowItem) {
+                                        if (!empty($rowItem["is_completed"])) $itemDone++;
+                                        $panelOffices[(int)$rowItem["office_id"]] = true;
+                                    }
+                                    $panelOfficeCount = count($panelOffices);
                                     ?>
                                     <details class="review-requirements">
-                                        <summary>
+                                        <summary title="Requirement checklist">
                                             <i data-lucide="list-checks"></i>
-                                            Requirement checklist
+                                            <span class="req-title">Checklist</span>
                                             <span class="req-counter"><?= (int)$itemDone ?>/<?= (int)$itemTotal ?> complied</span>
                                         </summary>
                                         <form method="post" class="review-requirements-form">
@@ -752,7 +780,7 @@ require "_header.php";
                                                     <span class="review-requirement-text">
                                                         <strong><?= e($rowItem["item_name"]) ?></strong>
                                                         <small>
-                                                            <?= e($rowItem["office_name"] ?: "Office") ?> &middot;
+                                                            <?php if ($panelOfficeCount > 1): ?><?= e($rowItem["office_name"] ?: "Office") ?> &middot; <?php endif; ?>
                                                             <?= !empty($rowItem["is_required"]) ? "Required" : "Optional" ?>
                                                             <?= !empty($rowItem["notes"]) ? " &middot; " . e($rowItem["notes"]) : "" ?>
                                                         </small>
@@ -760,7 +788,7 @@ require "_header.php";
                                                 </label>
                                             <?php endforeach; ?>
                                             <button class="btn btn-primary review-requirements-save" type="submit"><i data-lucide="save"></i>Save checklist</button>
-                                            <small class="review-requirements-hint">Uncheck a complied requirement to send it back for action.</small>
+                                            <small class="review-requirements-hint">Uncheck to send back for action.</small>
                                         </form>
                                     </details>
                                 <?php endif; ?>
