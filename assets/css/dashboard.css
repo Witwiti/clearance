@@ -1817,7 +1817,7 @@ tbody tr:last-child td {
 }
 
 .review-table {
-    min-width: 1180px;
+    min-width: 1320px;
     table-layout: fixed;
 }
 
@@ -1828,34 +1828,40 @@ tbody tr:last-child td {
 
 .review-table th:nth-child(1),
 .review-table td:nth-child(1) {
-    width: 27%;
+    width: 22%;
 }
 
 .review-table th:nth-child(2),
 .review-table td:nth-child(2) {
-    width: 19%;
+    width: 13%;
 }
 
 .review-table th:nth-child(3),
 .review-table td:nth-child(3),
 .review-table th:nth-child(4),
 .review-table td:nth-child(4) {
-    width: 10%;
+    width: 8%;
 }
 
 .review-table th:nth-child(5),
 .review-table td:nth-child(5) {
-    width: 9%;
+    width: 8%;
 }
 
 .review-table th:nth-child(6),
 .review-table td:nth-child(6) {
-    width: 11%;
+    width: 14%;
+    white-space: normal;
 }
 
 .review-table th:nth-child(7),
 .review-table td:nth-child(7) {
-    width: 24%;
+    width: 8%;
+}
+
+.review-table th:nth-child(8),
+.review-table td:nth-child(8) {
+    width: 19%;
     white-space: normal;
 }
 
@@ -3640,12 +3646,117 @@ input[type="password"]::-ms-clear {
     overflow: hidden;
     text-overflow: ellipsis;
 }
-.review-table td:nth-child(7) {
+.review-table td:nth-child(8) {
     background: var(--surface-2);
     border-left: 1px solid var(--border);
 }
 .review-controls textarea {
     min-height: 38px;
+}
+
+/* Office requirement compliance panel (per office, per request). */
+.review-requirements-cell {
+    vertical-align: top;
+}
+
+.review-requirements {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 8px 10px;
+}
+
+.review-requirements > summary {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text);
+    list-style: none;
+}
+
+.review-requirements > summary::-webkit-details-marker {
+    display: none;
+}
+
+.review-requirements > summary::-moz-details-marker {
+    display: none;
+}
+
+.review-requirements > summary svg {
+    width: 15px;
+    height: 15px;
+}
+
+.review-requirements[open] > summary {
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.req-counter {
+    margin-left: auto;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.review-requirements-form {
+    display: grid;
+    gap: 8px;
+}
+
+.review-requirement-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 7px 8px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-2);
+    cursor: pointer;
+}
+
+.review-requirement-item input[type="checkbox"] {
+    margin-top: 2px;
+    width: 15px;
+    height: 15px;
+    flex: 0 0 15px;
+    accent-color: var(--orange, #f97316);
+}
+
+.review-requirement-text {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+
+.review-requirement-text strong {
+    font-size: 12.5px;
+    line-height: 1.3;
+}
+
+.review-requirement-text small {
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.review-requirements-save {
+    width: 100%;
+    justify-content: center;
+}
+
+.review-requirements-hint {
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.35;
 }
 
 /* Student clearance mobile: card rows like reference (Office | In Charge | Signature). */

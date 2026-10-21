@@ -82,6 +82,84 @@ if ($deanOfficeResult) {
 $deanOfficeStmt->close();
 $officeIds = array_values(array_unique($officeIds));
 
+// ---------------------------------------------------------------------------
+// Shared review helpers
+// ---------------------------------------------------------------------------
+
+// True when the signed-in office user may act on a transaction (office step or club step).
+$canReviewTxn = function (int $officeId, int $txnClubId) use ($conn, $clubIds, $isDsaUser, $sscOfficeId, $currentOfficeUserId, $officeIds, $directOfficeIds): bool {
+    if ($txnClubId > 0) return in_array($txnClubId, $clubIds, true);
+    if ($isDsaUser && $officeId === $sscOfficeId) {
+        // DSA reviews SSC transactions they assigned (no course filter, institutional).
+        $dchk = $conn->prepare("SELECT assignatory_id FROM office_assignatories WHERE office_id = ? AND assigned_by_user_id = ? AND status = 'active' LIMIT 1");
+        if (!$dchk) return false;
+        $dchk->bind_param("ii", $sscOfficeId, $currentOfficeUserId);
+        $dchk->execute();
+        $ok = (bool)$dchk->get_result()->fetch_assoc();
+        $dchk->close();
+        return $ok;
+    }
+    return in_array($officeId, $officeIds, true) || in_array($officeId, $directOfficeIds, true);
+};
+
+// Offices of one request this reviewer is allowed to act on.
+$authorizedOfficesForRequest = function (int $clearanceId) use ($conn, $canReviewTxn): array {
+    $offices = [];
+    if ($clearanceId <= 0) return $offices;
+    $txns = $conn->prepare("SELECT office_id, club_id FROM clearance_transactions WHERE clearance_id = ?");
+    if (!$txns) return $offices;
+    $txns->bind_param("i", $clearanceId);
+    $txns->execute();
+    $txnRes = $txns->get_result();
+    while ($t = $txnRes->fetch_assoc()) {
+        $oid = (int)($t["office_id"] ?? 0);
+        if ($oid > 0 && $canReviewTxn($oid, (int)($t["club_id"] ?? 0))) $offices[$oid] = true;
+    }
+    $txns->close();
+    return array_keys($offices);
+};
+
+// Recompute the request-level status from the office steps (same rules as admin/clearance.php).
+$recalculateOverallStatus = function (int $clearanceId) use ($conn): string {
+    $overallStatus = "pending";
+    $statusStmt = $conn->prepare("SELECT status FROM clearance_transactions WHERE clearance_id = ?");
+    if ($statusStmt) {
+        $statusStmt->bind_param("i", $clearanceId);
+        $statusStmt->execute();
+        $statusResult = $statusStmt->get_result();
+
+        $total = 0;
+        $rejected = 0;
+        $approved = 0;
+        while ($row = $statusResult->fetch_assoc()) {
+            $total++;
+            $transactionStatus = (string)($row["status"] ?? "pending");
+            if ($transactionStatus === "rejected") {
+                $rejected++;
+            } elseif ($transactionStatus === "approved") {
+                $approved++;
+            }
+        }
+        $statusStmt->close();
+
+        if ($total === 0) {
+            $overallStatus = "pending";
+        } elseif ($rejected > 0) {
+            $overallStatus = "not_cleared";
+        } elseif ($approved === $total) {
+            $overallStatus = "cleared";
+        }
+    }
+
+    $updateOverallStmt = $conn->prepare("UPDATE clearance_requests SET overall_status = ? WHERE clearance_id = ?");
+    if ($updateOverallStmt) {
+        $updateOverallStmt->bind_param("si", $overallStatus, $clearanceId);
+        $updateOverallStmt->execute();
+        $updateOverallStmt->close();
+    }
+    return $overallStatus;
+};
+
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $action = $_POST["action"] ?? "";
     if ($action === "bulk_update") {
@@ -91,36 +169,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $status = in_array($_POST["status"] ?? "", ["pending", "approved", "rejected"], true) ? $_POST["status"] : "pending";
         $remarks = trim((string)($_POST["remarks"] ?? ""));
 
-        $canReviewTxn = function (int $officeId, int $txnClubId) use ($conn, $clubIds, $isDsaUser, $sscOfficeId, $currentOfficeUserId, $officeIds, $directOfficeIds): bool {
-            if ($txnClubId > 0) return in_array($txnClubId, $clubIds, true);
-            if ($isDsaUser && $officeId === $sscOfficeId) {
-                // DSA reviews SSC transactions they assigned (no course filter, institutional).
-                $dchk = $conn->prepare("SELECT assignatory_id FROM office_assignatories WHERE office_id = ? AND assigned_by_user_id = ? AND status = 'active' LIMIT 1");
-                if (!$dchk) return false;
-                $dchk->bind_param("ii", $sscOfficeId, $currentOfficeUserId);
-                $dchk->execute();
-                $ok = (bool)$dchk->get_result()->fetch_assoc();
-                $dchk->close();
-                return $ok;
-            }
-            return in_array($officeId, $officeIds, true) || in_array($officeId, $directOfficeIds, true);
-        };
-
-        $authorizedOffices = [];
-        if ($clearanceId > 0) {
-            $txns = $conn->prepare("SELECT office_id, club_id FROM clearance_transactions WHERE clearance_id = ?");
-            if ($txns) {
-                $txns->bind_param("i", $clearanceId);
-                $txns->execute();
-                $txnRes = $txns->get_result();
-                while ($t = $txnRes->fetch_assoc()) {
-                    $oid = (int)($t["office_id"] ?? 0);
-                    if ($oid > 0 && $canReviewTxn($oid, (int)($t["club_id"] ?? 0))) $authorizedOffices[] = $oid;
-                }
-                $txns->close();
-            }
-        }
-        $authorizedOffices = array_values(array_unique($authorizedOffices));
+        $authorizedOffices = $authorizedOfficesForRequest($clearanceId);
 
         if ($authorizedOffices) {
             $okAll = true;
@@ -135,38 +184,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $okAll = false;
             }
             if ($okAll) {
-                $statusStmt = $conn->prepare("SELECT status FROM clearance_transactions WHERE clearance_id = ?");
-                $statusStmt->bind_param("i", $clearanceId);
-                $statusStmt->execute();
-                $statusResult = $statusStmt->get_result();
-
-                $total = 0;
-                $rejected = 0;
-                $approved = 0;
-                while ($row = $statusResult->fetch_assoc()) {
-                    $total++;
-                    $transactionStatus = (string)($row["status"] ?? "pending");
-                    if ($transactionStatus === "rejected") {
-                        $rejected++;
-                    } elseif ($transactionStatus === "approved") {
-                        $approved++;
-                    }
-                }
-                $statusStmt->close();
-
-                $overallStatus = "pending";
-                if ($total === 0) {
-                    $overallStatus = "pending";
-                } elseif ($rejected > 0) {
-                    $overallStatus = "not_cleared";
-                } elseif ($approved === $total) {
-                    $overallStatus = "cleared";
-                }
-
-                $updateOverallStmt = $conn->prepare("UPDATE clearance_requests SET overall_status = ? WHERE clearance_id = ?");
-                $updateOverallStmt->bind_param("si", $overallStatus, $clearanceId);
-                $updateOverallStmt->execute();
-                $updateOverallStmt->close();
+                $overallStatus = $recalculateOverallStatus($clearanceId);
 
                 // Automatic student notification (approved / rejected / needs action).
                 $su = $conn->prepare("SELECT s.user_id, CONCAT(s.first_name,' ',s.last_name) AS nm FROM clearance_requests cr INNER JOIN students s ON s.student_id=cr.student_id WHERE cr.clearance_id=? LIMIT 1");
@@ -190,6 +208,113 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             }
         } else {
             $error = "You are not assigned to this office.";
+        }
+    } elseif ($action === "update_requirements") {
+        // Requirement compliance (clearance_items) for the offices this reviewer owns.
+        // Works in both directions: a requirement can be marked as complied, or
+        // un-marked when the student has to be sent back for action — even when
+        // the student already complied and the request was already cleared.
+        $clearanceId = (int)($_POST["clearance_id"] ?? 0);
+        $authorizedOffices = $authorizedOfficesForRequest($clearanceId);
+
+        if (!$authorizedOffices) {
+            $error = "You are not assigned to this office.";
+        } else {
+            // Only the checked boxes are posted; everything else is un-marked.
+            $postedItemIds = [];
+            $postedItems = $_POST["item_completed"] ?? [];
+            if (is_array($postedItems)) {
+                foreach ($postedItems as $postedItemId => $postedValue) {
+                    $postedItemId = (int)$postedItemId;
+                    if ($postedItemId > 0) $postedItemIds[$postedItemId] = true;
+                }
+            }
+
+            $officePlaceholders = implode(",", array_fill(0, count($authorizedOffices), "?"));
+            $itemStmt = $conn->prepare(
+                "SELECT item_id, office_id, item_name, is_required, is_completed
+                 FROM clearance_items
+                 WHERE clearance_id = ? AND office_id IN (" . $officePlaceholders . ")
+                 ORDER BY office_id, item_name"
+            );
+
+            $markedCount = 0;
+            $reopenedCount = 0;
+            $reopenedOffices = [];
+
+            if ($itemStmt) {
+                $itemStmt->bind_param(str_repeat("i", count($authorizedOffices) + 1), $clearanceId, ...$authorizedOffices);
+                $itemStmt->execute();
+                $itemRes = $itemStmt->get_result();
+                $updateStmt = $conn->prepare("UPDATE clearance_items SET is_completed = ? WHERE item_id = ? AND clearance_id = ? AND office_id = ?");
+                while ($item = $itemRes->fetch_assoc()) {
+                    $itemId = (int)($item["item_id"] ?? 0);
+                    $officeId = (int)($item["office_id"] ?? 0);
+                    $wasCompleted = !empty($item["is_completed"]);
+                    $isCompleted = isset($postedItemIds[$itemId]);
+                    if ($wasCompleted === $isCompleted) continue;
+                    if (!$updateStmt) break;
+                    $flag = $isCompleted ? 1 : 0;
+                    $updateStmt->bind_param("iiii", $flag, $itemId, $clearanceId, $officeId);
+                    if ($updateStmt->execute()) {
+                        if ($isCompleted) {
+                            $markedCount++;
+                        } else {
+                            $reopenedCount++;
+                            if (!empty($item["is_required"])) $reopenedOffices[$officeId] = true;
+                        }
+                    }
+                }
+                if ($updateStmt) $updateStmt->close();
+                $itemStmt->close();
+            }
+
+            // Un-marking a required requirement reopens an already approved office step.
+            $reopenedSteps = 0;
+            if ($reopenedOffices) {
+                $stepStmt = $conn->prepare(
+                    "UPDATE clearance_transactions
+                     SET status = 'pending', reviewed_by = ?, reviewed_at = NOW()
+                     WHERE clearance_id = ? AND office_id = ? AND status = 'approved'"
+                );
+                if ($stepStmt) {
+                    foreach (array_keys($reopenedOffices) as $officeId) {
+                        $stepStmt->bind_param("iii", $currentOfficeUserId, $clearanceId, $officeId);
+                        if ($stepStmt->execute() && $stepStmt->affected_rows > 0) $reopenedSteps++;
+                    }
+                    $stepStmt->close();
+                }
+            }
+
+            $overallStatus = $recalculateOverallStatus($clearanceId);
+
+            // Tell the student what changed on their requirements.
+            $su = $conn->prepare("SELECT s.user_id FROM clearance_requests cr INNER JOIN students s ON s.student_id=cr.student_id WHERE cr.clearance_id=? LIMIT 1");
+            if ($su) {
+                $su->bind_param("i", $clearanceId);
+                $su->execute();
+                $sr = $su->get_result()->fetch_assoc();
+                $su->close();
+                if ($sr && (int)($sr["user_id"] ?? 0) > 0 && function_exists('notify_user')) {
+                    $parts = [];
+                    if ($markedCount > 0) $parts[] = $markedCount . ' requirement(s) marked as complied';
+                    if ($reopenedCount > 0) $parts[] = $reopenedCount . ' requirement(s) sent back for action';
+                    $msg = 'An office reviewer updated the requirement status on your clearance request'
+                        . ($parts ? ': ' . implode(', ', $parts) : '.')
+                        . '. Overall status: ' . $overallStatus . '.';
+                    notify_user($conn, (int)$sr["user_id"], 'Clearance requirements updated', $msg, 'requirements_update', $clearanceId);
+                }
+            }
+
+            $flashParts = [];
+            if ($markedCount > 0) $flashParts[] = $markedCount . ' requirement(s) marked as complied';
+            if ($reopenedCount > 0) $flashParts[] = $reopenedCount . ' requirement(s) sent back for action';
+            if ($reopenedSteps > 0) $flashParts[] = $reopenedSteps . ' approved step(s) set back to pending';
+            $_SESSION["flash_message"] = $flashParts
+                ? ucfirst(implode('; ', $flashParts)) . '.'
+                : "Requirement status saved.";
+            header("Location: reviews.php");
+            exit;
         }
     }
 }
@@ -391,6 +516,41 @@ foreach ($reviewRows as $row) {
     }
 }
 
+// Requirement items (clearance_items) the reviewer may update.
+// Scoped to the offices this reviewer owns for each request, so an office can
+// only touch its own requirements - never another office's.
+$authorizedOfficeMap = [];
+foreach ($reviewRows as $row) {
+    $cid = (int)($row["clearance_id"] ?? 0);
+    $oid = (int)($row["office_id"] ?? 0);
+    if ($cid > 0 && $oid > 0) $authorizedOfficeMap[$cid][$oid] = true;
+}
+
+$requestItems = [];
+if ($authorizedOfficeMap) {
+    $queueClearanceIds = array_keys($authorizedOfficeMap);
+    $clearancePlaceholders = implode(",", array_fill(0, count($queueClearanceIds), "?"));
+    $itemListStmt = $conn->prepare(
+        "SELECT ci.item_id, ci.clearance_id, ci.office_id, ci.item_name, ci.notes, ci.is_required, ci.is_completed, o.office_name
+         FROM clearance_items ci
+         LEFT JOIN offices o ON o.office_id = ci.office_id
+         WHERE ci.clearance_id IN (" . $clearancePlaceholders . ")
+         ORDER BY ci.clearance_id, o.office_name, ci.item_name"
+    );
+    if ($itemListStmt) {
+        $itemListStmt->bind_param(str_repeat("i", count($queueClearanceIds)), ...$queueClearanceIds);
+        $itemListStmt->execute();
+        $itemListRes = $itemListStmt->get_result();
+        while ($item = $itemListRes->fetch_assoc()) {
+            $cid = (int)($item["clearance_id"] ?? 0);
+            $oid = (int)($item["office_id"] ?? 0);
+            if (!isset($authorizedOfficeMap[$cid][$oid])) continue;
+            $requestItems[$cid][] = $item;
+        }
+        $itemListStmt->close();
+    }
+}
+
 require "_header.php";
 ?>
 <div class="page-heading">
@@ -475,6 +635,7 @@ require "_header.php";
                         <th>School Year</th>
                         <th>Semester</th>
                         <th>Status</th>
+                        <th>Requirements</th>
                         <th>Updated</th>
                         <th>Action</th>
                     </tr>
@@ -508,6 +669,44 @@ require "_header.php";
                             <td><?= e($row["school_year"]) ?></td>
                             <td><?= e($row["semester"]) ?></td>
                             <td><span class="status status-<?= e($stCls) ?>"><?= e($stLabel) ?></span></td>
+                            <td class="review-requirements-cell">
+                                <?php $rowItems = $requestItems[(int)$row["clearance_id"]] ?? []; ?>
+                                <?php if (!$rowItems): ?>
+                                    <span class="muted" style="font-size:12px;">No requirements published</span>
+                                <?php else: ?>
+                                    <?php
+                                    $itemTotal = count($rowItems);
+                                    $itemDone = 0;
+                                    foreach ($rowItems as $rowItem) if (!empty($rowItem["is_completed"])) $itemDone++;
+                                    ?>
+                                    <details class="review-requirements">
+                                        <summary>
+                                            <i data-lucide="list-checks"></i>
+                                            Requirements
+                                            <span class="req-counter"><?= (int)$itemDone ?>/<?= (int)$itemTotal ?> complied</span>
+                                        </summary>
+                                        <form method="post" class="review-requirements-form">
+                                            <input type="hidden" name="action" value="update_requirements">
+                                            <input type="hidden" name="clearance_id" value="<?= (int)$row["clearance_id"] ?>">
+                                            <?php foreach ($rowItems as $rowItem): ?>
+                                                <label class="review-requirement-item">
+                                                    <input type="checkbox" name="item_completed[<?= (int)$rowItem["item_id"] ?>]" value="1" <?= !empty($rowItem["is_completed"]) ? "checked" : "" ?>>
+                                                    <span class="review-requirement-text">
+                                                        <strong><?= e($rowItem["item_name"]) ?></strong>
+                                                        <small>
+                                                            <?= e($rowItem["office_name"] ?: "Office") ?> &middot;
+                                                            <?= !empty($rowItem["is_required"]) ? "Required" : "Optional" ?>
+                                                            <?= !empty($rowItem["notes"]) ? " &middot; " . e($rowItem["notes"]) : "" ?>
+                                                        </small>
+                                                    </span>
+                                                </label>
+                                            <?php endforeach; ?>
+                                            <button class="btn btn-primary review-requirements-save" type="submit"><i data-lucide="save"></i>Save requirements</button>
+                                            <small class="review-requirements-hint">Uncheck a complied requirement to send it back for action.</small>
+                                        </form>
+                                    </details>
+                                <?php endif; ?>
+                            </td>
                             <td><?= e($row["reviewed_at"] ? date("M d, Y", strtotime($row["reviewed_at"])) : "Waiting") ?></td>
                             <td>
                                 <form method="post" class="review-action-form">

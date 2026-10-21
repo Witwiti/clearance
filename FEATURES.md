@@ -25,6 +25,10 @@ Project root: `C:\xampp\htdocs\clearance` · Open via `http://localhost/clearanc
 4. **Overall status recalculation** after every review (and self-healed on each admin clearance page load):
    - `total==0` → `pending`; any `rejected` → `not_cleared`; all `approved` → `cleared`; else `pending`.
 5. Student tracks per-office status, remarks, `reviewed_at`, progress % (`approved/total`), and prints the form.
+6. **Requirement compliance by the office** (`office/reviews.php` → *Requirements* panel per queue row):
+   - The office marks its own `clearance_items` as complied, or un-marks one to send it back for action.
+   - Works in both directions — a student who already complied can be reopened: un-marking a **required** item sets the office step back to `pending`, the overall status is recalculated (`cleared` → `pending`) and the student gets a `requirements_update` notification.
+   - Scoped: only the offices the reviewer is authorized for are loaded, and only those items can be updated (an office can never touch another office's requirements).
 
 ### 2.1 Printable clearance form (PDF export)
 
@@ -41,6 +45,7 @@ Project root: `C:\xampp\htdocs\clearance` · Open via `http://localhost/clearanc
 - **Automatic triggers:**
   - New student request → all admins + assigned office users (incl. deans via `assigned_by_user_id`).
   - Office approve/reject/pending → the student (with office name, remarks, overall status).
+  - Office updates requirement compliance → the student (`requirements_update`, with what was marked/sent back and the new overall status).
   - Admin edits requirements → the student.
   - Announcement published (admin or office) → students (+ offices for admin posts).
 - **UI:** bell icon with live unread badge in all 3 topbars; `*/notifications.php` pages (All/Unread, Mark read, Mark all read, Delete); badge polling every 30s via `notifications_unread.php` (`assets/js/app.js`).
