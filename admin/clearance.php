@@ -235,7 +235,7 @@ require "_header.php";
         <h1>Clearance</h1>
         <p>Monitor all student clearance requests. Active only — finished records live in <a href="archive.php">Archive</a>.</p>
     </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    <div class="page-heading-actions">
         <a class="btn btn-secondary" href="archive.php"><i data-lucide="archive"></i> Archive</a>
         <a class="btn btn-secondary" href="reports.php"><i data-lucide="file-bar-chart"></i> Reports</a>
         <a class="btn btn-secondary" href="requirement_types.php"><i data-lucide="list-checks"></i> Requirements</a>

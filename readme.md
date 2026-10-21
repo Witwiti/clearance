@@ -167,7 +167,7 @@ Single global script, no backend calls: auto-dismiss `.notice` after 4s; PHT clo
 ## 11. Styling
 
 - `auth.css`: reset + Inter font, `.auth-card` (420px), form/btn/alert styles, maintenance card (480px), landing grid background, 1180px shell with orange top border, 2-col hero (copy + seal ring/circle/label), 3-col proof/features, responsive single-column under 760px.
-- `dashboard.css` (~2000 lines): CSS vars (sidebar/page/surface/border/text/muted/orange/green/red/yellow), fixed 250px -> 72px collapsed sidebar, school header/menu, search, active menu items, switch, sticky topbar with centered PHT, icon buttons, `content max-width 1220px`, stats/mini grids, identity/announcement/clearance-paper/detail grids, tables, status pills (`pending/approved/cleared/active/rejected/not_cleared/inactive/draft/published`), review-table layout (1180px min), floating centered modals + backdrop, announcement/configuration forms, confirm modal, dark-mode overrides.
+- `dashboard.css` (~2000 lines): CSS vars (sidebar/page/surface/border/text/muted/orange/green/red/yellow), fixed 250px -> 72px collapsed sidebar, school header/menu, search, active menu items, switch, sticky topbar with centered PHT, icon buttons, `content max-width 1220px`, stats/mini grids, identity/announcement/clearance-paper/detail grids, tables, status pills (`pending/approved/cleared/active/rejected/not_cleared/inactive/draft/published`), review-table layout (1320px min), page-heading action buttons (`.page-heading-actions`, single row), floating centered modals + backdrop, announcement/configuration forms, confirm modal, dark-mode overrides.
 
 ## 12. Database Reference (inferred from queries)
 

@@ -131,9 +131,9 @@ require "_header.php";
 <div class="page-heading">
     <div>
         <h1>Requirement Types</h1>
-        <p>Master list of reusable office requirements. Add them once here, then publish them to students — Public (everyone) or Custom (chosen students).</p>
+        <p>Add office requirements once, then publish them — Public (all students) or Custom (chosen students).</p>
     </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    <div class="page-heading-actions">
         <a class="btn btn-primary" href="#publish-form" data-form-target="publish-form"><i data-lucide="send"></i> Publish</a>
         <a class="btn btn-secondary" href="#reqtype-form" data-form-target="reqtype-form"><i data-lucide="plus"></i> Add requirement type</a>
     </div>

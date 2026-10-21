@@ -97,7 +97,7 @@ require "_header.php";
 ?>
 <div class="page-heading">
     <div><h1>Reports</h1><p>Generate clearance summaries — counts plus detailed rows. Export to Excel (CSV) or print to PDF.</p></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    <div class="page-heading-actions">
         <a class="btn btn-secondary" href="reports.php?<?= e(qs(["export" => "csv"])) ?>" data-delete-confirm="Download <?= (int)count($rows) ?> record(s) as a CSV file? The export contains the filters that are currently applied." data-confirm-title="Export Excel (CSV)?" data-confirm-action="Export" data-confirm-kind="warning" data-confirm-icon="file-spreadsheet"><i data-lucide="file-spreadsheet"></i> Export Excel (CSV)</a>
         <a class="btn btn-primary" href="reports_pdf.php?<?= e(qs_without(["export"])) ?>" data-delete-confirm="Download the report as a PDF? The PDF contains the <?= (int)count($rows) ?> record(s) matching the current filters." data-confirm-title="Print / PDF?" data-confirm-action="Download" data-confirm-kind="warning" data-confirm-icon="printer"><i data-lucide="printer"></i> Print / PDF</a>
         <?php if ($dupeExtra > 0): ?>

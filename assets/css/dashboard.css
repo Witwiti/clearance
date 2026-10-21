@@ -1123,6 +1123,21 @@ button.profile-drop-item {
     color: var(--muted);
 }
 
+/* Buttons on the right of a page heading: stay on one row, never squeezed. */
+.page-heading-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+}
+
+@media (max-width: 860px) {
+    .page-heading-actions {
+        flex-wrap: wrap;
+    }
+}
+
 .section-block {
     margin-bottom: 30px;
 }
