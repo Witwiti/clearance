@@ -141,42 +141,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             header("Location: clearance.php");
             exit;
         }
-    } elseif ($action === "publish_template") {
-        // Official publish: public → all active requests (+ future auto-attach); custom → chosen students. Always notifies.
-        $rid = (int)($_POST["requirement_id"] ?? 0);
-        $scope = ($_POST["scope"] ?? "custom") === "public" ? "public" : "custom";
-        $targetIds = [];
-        foreach (($_POST["target_students"] ?? []) as $tid) {
-            $tid = (int)$tid;
-            if ($tid > 0) $targetIds[$tid] = true;
-        }
-        $targetIds = array_keys($targetIds);
-        if ($rid <= 0) {
-            $error = "Invalid requirement.";
-        } elseif ($scope === "custom" && !$targetIds) {
-            $error = "Choose at least one student for custom publish.";
-        } elseif (!function_exists("publish_requirement_template")) {
-            $error = "Publish helper missing.";
-        } else {
-            $res = publish_requirement_template($conn, $rid, $scope, $targetIds);
-            if ($res === false) {
-                $error = "Only active requirement types can be published.";
-            } else {
-                $_SESSION["flash_message"] = $res["requests"] > 0
-                    ? "Published to {$res["requests"]} request(s) — {$res["published"]} item(s) added (duplicates skipped)" . ($res["removed_stale"] > 0 ? ", {$res["removed_stale"]} stale removed" : "") . ". {$res["notified"]} student(s) notified."
-                    : "Scope saved. {$res["notified"]} student(s) notified (no matching active requests yet).";
-                header("Location: clearance.php");
-                exit;
-            }
-        }
-    } elseif ($action === "unpublish_template") {
-        $rid = (int)($_POST["requirement_id"] ?? 0);
-        if ($rid > 0 && function_exists("unpublish_requirement_template")) {
-            $res = unpublish_requirement_template($conn, $rid);
-            $_SESSION["flash_message"] = "Unpublished — {$res["removed"]} item(s) removed from requests. {$res["notified"]} student(s) notified.";
-            header("Location: clearance.php");
-            exit;
-        }
     } elseif ($action === "archive" && isset($_POST["clearance_id"])) {
         $clearanceId = (int)$_POST["clearance_id"];
         if ($clearanceId > 0) {
@@ -233,32 +197,6 @@ $selectedRequest = null;
 $selectedItems = [];
 $officeOptions = $conn->query("SELECT office_id, office_name FROM offices ORDER BY office_name");
 
-// Publish panel data: active templates with scope + live publish state, plus active students for custom targeting.
-$publishTemplates = [];
-$ptRes = $conn->query(
-    "SELECT rt.requirement_id, rt.requirement_name, rt.description, rt.audience, o.office_name,
-            (SELECT COUNT(*) FROM requirement_targets t WHERE t.requirement_id = rt.requirement_id) AS target_count,
-            (SELECT COUNT(*) FROM clearance_items ci WHERE ci.source_requirement_id = rt.requirement_id) AS published_count
-     FROM requirement_types rt LEFT JOIN offices o ON o.office_id = rt.office_id
-     WHERE rt.status = 'active' ORDER BY o.office_name, rt.requirement_name"
-);
-if ($ptRes) {
-    while ($pt = $ptRes->fetch_assoc()) $publishTemplates[] = $pt;
-    $ptRes->close();
-}
-$publishTargets = [];
-$ptgRes = $conn->query("SELECT requirement_id, student_id FROM requirement_targets");
-if ($ptgRes) {
-    while ($ptg = $ptgRes->fetch_assoc()) $publishTargets[(int)$ptg["requirement_id"]][] = (int)$ptg["student_id"];
-    $ptgRes->close();
-}
-$publishStudents = [];
-$psRes = $conn->query("SELECT student_id, student_number, CONCAT(first_name, ' ', last_name) AS full_name FROM students WHERE status = 'active' ORDER BY student_number ASC");
-if ($psRes) {
-    while ($ps = $psRes->fetch_assoc()) $publishStudents[] = $ps;
-    $psRes->close();
-}
-
 if ($selectedReviewId > 0) {
     $stmt = $conn->prepare(
         "SELECT cr.clearance_id, s.student_number, CONCAT(s.first_name, ' ', s.last_name) AS student_name,
@@ -300,13 +238,7 @@ require "_header.php";
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <a class="btn btn-secondary" href="archive.php"><i data-lucide="archive"></i> Archive</a>
         <a class="btn btn-secondary" href="reports.php"><i data-lucide="file-bar-chart"></i> Reports</a>
-        <button
-            type="button"
-            id="addOfficeButtonTop"
-            class="btn btn-primary"
-            onclick="window.openClearanceModal && window.openClearanceModal();">
-            <i data-lucide="plus"></i> Add office
-        </button>
+        <a class="btn btn-secondary" href="requirement_types.php"><i data-lucide="list-checks"></i> Requirements</a>
     </div>
 </div>
 
@@ -355,103 +287,6 @@ require "_header.php";
     </div>
 </div>
 
-<div class="page-heading" style="margin-top:18px;">
-    <div>
-        <h2>Publish requirements</h2>
-        <p>Officially push a requirement to requests: public goes to all active requests (and auto-attaches to new ones), custom goes to chosen students only.</p>
-    </div>
-    <a class="btn btn-primary" href="#publish-form" data-form-target="publish-form"><i data-lucide="send"></i> Publish</a>
-</div>
-
-<div class="form-card announcement-form floating-form" id="publish-form">
-    <div class="floating-form-header">
-        <h2>Publish requirement</h2>
-        <button class="floating-form-close" type="button" aria-label="Close form"><i data-lucide="x"></i></button>
-    </div>
-    <form method="post">
-        <input type="hidden" name="action" value="publish_template">
-        <label>Requirement
-            <select name="requirement_id" id="publishRequirement" required>
-                <option value="">Select requirement</option>
-                <?php foreach ($publishTemplates as $pt): ?>
-                    <option value="<?= (int)$pt["requirement_id"] ?>" data-audience="<?= e($pt["audience"] ?? "custom") ?>" data-targets="<?= e(implode(",", $publishTargets[(int)$pt["requirement_id"]] ?? [])) ?>"><?= e(($pt["office_name"] ?: "—") . " — " . $pt["requirement_name"]) ?></option>
-                <?php endforeach; ?>
-            </select>
-        </label>
-        <label class="checkbox-field"><input type="radio" name="scope" value="public" id="scopePublic"> All students</label>
-        <label class="checkbox-field"><input type="radio" name="scope" value="custom" id="scopeCustom" checked> Chosen students</label>
-        <label>Custom students (Ctrl/Cmd+click for multiple)
-            <select name="target_students[]" multiple size="8">
-                <?php foreach ($publishStudents as $ps): ?>
-                    <option value="<?= (int)$ps["student_id"] ?>"><?= e($ps["student_number"] . " — " . $ps["full_name"]) ?></option>
-                <?php endforeach; ?>
-            </select>
-            <small class="field-help">Only used for chosen-students scope.</small>
-        </label>
-        <button class="btn btn-primary" type="submit"><i data-lucide="send"></i>Publish</button>
-    </form>
-</div>
-
-<div class="table-card" id="publish-requirements">
-    <div class="table-wrapper">
-        <table>
-            <thead><tr><th>Requirement</th><th>Scope</th><th>State</th><th>Action</th></tr></thead>
-            <tbody>
-            <?php if ($publishTemplates): ?>
-                <?php foreach ($publishTemplates as $pt): $ptId = (int)$pt["requirement_id"]; $ptPublished = (int)($pt["published_count"] ?? 0) > 0; $ptTargets = $publishTargets[$ptId] ?? []; ?>
-                    <tr>
-                        <td><strong><?= e($pt["requirement_name"]) ?></strong><small><?= e(($pt["office_name"] ?: "—") . ($pt["description"] ? " · " . $pt["description"] : "")) ?></small></td>
-                        <td><?= ($pt["audience"] ?? "custom") === "public" ? "Public" : "Custom" . ($ptTargets ? " (" . count($ptTargets) . ")" : "") ?></td>
-                        <td>
-                            <?php if ($ptPublished): ?>
-                                <span class="status status-approved">Published</span>
-                            <?php else: ?>
-                                <span class="status status-pending">Not published</span>
-                            <?php endif; ?>
-                        </td>
-                        <td class="action-group">
-                            <?php if ($ptPublished): ?>
-                                <form method="post" data-delete-confirm="Unpublish <?= e($pt["requirement_name"]) ?>? Removes its items from all requests." data-confirm-title="Unpublish requirement?" data-confirm-action="Unpublish">
-                                    <input type="hidden" name="action" value="unpublish_template">
-                                    <input type="hidden" name="requirement_id" value="<?= $ptId ?>">
-                                    <button class="table-action" type="submit">Unpublish</button>
-                                </form>
-                            <?php else: ?>
-                                <span class="muted">—</span>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-            <?php else: ?>
-                <tr><td colspan="4" class="empty-state">No active requirement types. Add them in <a href="requirement_types.php">Requirement Types</a>.</td></tr>
-            <?php endif; ?>
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<script>
-(function () {
-    const reqSel = document.getElementById("publishRequirement");
-    const scopePublic = document.getElementById("scopePublic");
-    const scopeCustom = document.getElementById("scopeCustom");
-    if (!reqSel || !scopePublic || !scopeCustom) return;
-    const syncScope = () => {
-        const opt = reqSel.options[reqSel.selectedIndex];
-        if (!opt || !opt.value) return;
-        const isPublic = (opt.dataset.audience || "custom") === "public";
-        scopePublic.checked = isPublic;
-        scopeCustom.checked = !isPublic;
-        const targets = (opt.dataset.targets || "").split(",").filter(Boolean);
-        const studentSel = reqSel.closest("form")?.querySelector('select[name="target_students[]"]');
-        if (studentSel) {
-            [...studentSel.options].forEach((o) => { o.selected = targets.includes(o.value); });
-        }
-    };
-    reqSel.addEventListener("change", syncScope);
-})();
-</script>
-
 <div class="form-card announcement-form floating-form clearance-template-editor <?= isset($_GET["review"]) && $selectedRequest ? "is-open" : "" ?>" id="clearance-review-form">
     <div class="floating-form-header clearance-template-header">
         <h2>Student Clearance Content</h2>
@@ -468,7 +303,7 @@ require "_header.php";
         </div>
     <?php endif; ?>
 
-    <p class="clearance-template-note">Per-student manual items (one-off). To push office requirements to students, use “Publish requirements” above with Public / Custom scope — publishing or unpublishing automatically sends a notification to the affected students.</p>
+    <p class="clearance-template-note">Per-student manual items (one-off). To push office requirements to students, publish them from <a href="requirement_types.php">Requirement Types</a> with Public / Custom scope — publishing or unpublishing automatically sends a notification to the affected students.</p>
 
     <form method="post" class="clearance-template-form">
         <input type="hidden" name="action" value="save_requirements">
@@ -544,7 +379,7 @@ require "_header.php";
         <?php endif; ?>
         <a class="btn btn-secondary" href="requirement_types.php"><i data-lucide="settings-2"></i> Manage templates</a>
     </div>
-    <p class="muted" style="margin-top:8px;font-size:12px;">Tip: publish office requirements from the “Publish requirements” section above (Public = all students, Custom = chosen students). Publishing / unpublishing automatically notifies the affected students.</p>
+    <p class="muted" style="margin-top:8px;font-size:12px;">Tip: publish office requirements from <a href="requirement_types.php">Requirement Types</a> (Public = all students, Custom = chosen students). Publishing / unpublishing automatically notifies the affected students.</p>
     <?php endif; ?>
 </div>
 
@@ -593,18 +428,7 @@ require "_header.php";
         bindSingleRowEvents(row);
     }
 
-    function openClearanceModal() {
-        const form = document.getElementById('clearance-review-form');
-        if (form) {
-            form.classList.add('is-open');
-            document.body.classList.add('modal-open');
-            const firstField = form.querySelector('input:not([type="hidden"]), textarea, select');
-            if (firstField) firstField.focus();
-        }
-    }
-
     window.addClearanceRow = addClearanceRow;
-    window.openClearanceModal = openClearanceModal;
 
     const officeOptionsHtml = `<?php
         $optionsHtml = "";

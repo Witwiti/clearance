@@ -79,7 +79,7 @@ Project root: `C:\xampp\htdocs\clearance` · Open via `http://localhost/clearanc
 
 - Table: `requirement_types(requirement_id, office_id FK, requirement_name, description, is_required, status, created_at)`.
 - `admin/requirement_types.php`: full CRUD + activate/deactivate + delete (confirm modal), office filter + search, reusable across requests.
-- Integration: `admin/clearance.php` + `admin/requirement_types.php` share the same **Publish requirements** flow (Public = all active requests + auto-attach to new ones, Custom = chosen students only, duplicates skipped). Publishing / unpublishing writes to `clearance_items.source_requirement_id` and fires a `requirements_update` notification to affected students (`student/notifications.php` + `My requirements` on dashboard).
+- Integration: the **Publish requirements** flow lives only in `admin/requirement_types.php` (Public = all active requests + auto-attach to new ones, Custom = chosen students only, duplicates skipped). Publishing / unpublishing writes to `clearance_items.source_requirement_id` and fires a `requirements_update` notification to affected students (`student/notifications.php` + `My requirements` on dashboard). `admin/clearance.php` only monitors requests and links to the Requirement Types page.
 - Per-request custom items still live in `clearance_items` (unchanged editor).
 
 ## 8. School Terms (semester + school year master data)

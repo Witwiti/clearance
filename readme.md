@@ -105,7 +105,7 @@ Admin additionally recalculates every request on every GET, so the monitor view 
 - Auto-creates `clearance_items(item_id, clearance_id FK CASCADE, office_id FK CASCADE, item_name, notes, is_required, is_completed, created_at)`.
 - List view: all requests join students, newest first; defaults `?review=` to first row; detail loads request + items join offices.
 - Editor (`#clearance-review-form`, `clearance-template-editor`): dynamic rows with Office select + Requirement name + Notes + Required/Completed checkboxes + Delete. JS `addClearanceRow()` computes next index, injects `officeOptionsHtml` from PHP, `bindSingleRowEvents()` adds hidden `removed_office_ids[]` when deleting a row with an office selected. POST `save_requirements`: `DELETE FROM clearance_items WHERE clearance_id=`, loop `item_name[]/item_office[]/item_notes[]/item_required[]/item_completed[]`, skip empty name, `office<=0`, or removed office, `INSERT` remainder, recalc status, redirect `?review=id`.
-- Inline page script also defines `openClearanceModal()` ("Add office" top button).
+- The page itself only **monitors** requests: the "Add office" shortcut button, the `openClearanceModal()` helper and the whole *Publish requirements* section were removed — requirement types and publishing now live in `admin/requirement_types.php`. The per-request drawer is still reachable from each row's **Edit** link (`data-form-target="clearance-review-form"`), and the page heading links to Requirement Types.
 
 ## 7. Admin Portal (`admin/`)
 
