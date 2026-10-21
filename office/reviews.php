@@ -160,6 +160,16 @@ $recalculateOverallStatus = function (int $clearanceId) use ($conn): string {
     return $overallStatus;
 };
 
+// Human date for the "Updated" column. Empty and zero dates are treated as "Waiting"
+// so a malformed timestamp never renders as a bogus 1970 date.
+$formatReviewedAt = function ($value): string {
+    $raw = trim((string)($value ?? ""));
+    if ($raw === "" || strpos($raw, "0000-00-00") === 0) return "Waiting";
+    $timestamp = strtotime($raw);
+    if ($timestamp === false) return "Waiting";
+    return date("M d, Y", $timestamp);
+};
+
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $action = $_POST["action"] ?? "";
     if ($action === "bulk_update") {
@@ -551,6 +561,41 @@ if ($authorizedOfficeMap) {
     }
 }
 
+// Every office step of every request in the queue (not only the reviewer's own
+// offices), so the row can explain the request-level status.
+$requestSteps = [];
+if ($groupedReviews) {
+    $queueClearanceIds = array_map("intval", array_keys($groupedReviews));
+    $clearancePlaceholders = implode(",", array_fill(0, count($queueClearanceIds), "?"));
+    $stepsStmt = $conn->prepare(
+        "SELECT ct.clearance_id, ct.status,
+                CASE WHEN ct.club_id IS NOT NULL THEN CONCAT('Institutional Club - ', COALESCE(c.club_name, 'Club')) ELSE o.office_name END AS office_name
+         FROM clearance_transactions ct
+         LEFT JOIN offices o ON o.office_id = ct.office_id
+         LEFT JOIN institutional_clubs c ON c.club_id = ct.club_id
+         WHERE ct.clearance_id IN (" . $clearancePlaceholders . ")
+         ORDER BY ct.clearance_id, office_name"
+    );
+    if ($stepsStmt) {
+        $stepsStmt->bind_param(str_repeat("i", count($queueClearanceIds)), ...$queueClearanceIds);
+        $stepsStmt->execute();
+        $stepsRes = $stepsStmt->get_result();
+        while ($step = $stepsRes->fetch_assoc()) {
+            $cid = (int)($step["clearance_id"] ?? 0);
+            $stepStatus = (string)($step["status"] ?? "pending");
+            if (!isset($requestSteps[$cid])) {
+                $requestSteps[$cid] = ["total" => 0, "approved" => 0, "rejected" => 0, "pending" => 0, "offices" => []];
+            }
+            $requestSteps[$cid]["total"]++;
+            if ($stepStatus === "approved") $requestSteps[$cid]["approved"]++;
+            elseif ($stepStatus === "rejected") $requestSteps[$cid]["rejected"]++;
+            else $requestSteps[$cid]["pending"]++;
+            $requestSteps[$cid]["offices"][] = (string)($step["office_name"] ?: "Office") . " — " . $stepStatus;
+        }
+        $stepsStmt->close();
+    }
+}
+
 require "_header.php";
 ?>
 <div class="page-heading">
@@ -634,7 +679,7 @@ require "_header.php";
                         <th>Office</th>
                         <th>School Year</th>
                         <th>Semester</th>
-                        <th>Status</th>
+                        <th>Overall status</th>
                         <th>Checklist</th>
                         <th>Updated</th>
                         <th>Action</th>
@@ -668,7 +713,20 @@ require "_header.php";
                             <td><?php if ((int)$row["steps"] <= 1): ?><span class="office-pill"><?= e($row["office_name"]) ?></span><?php else: ?><span class="office-pill"><?= (int)$row["steps"] ?> offices</span><small><?= (int)$row["approved"] ?> of <?= (int)$row["steps"] ?> approved</small><?php endif; ?></td>
                             <td><?= e($row["school_year"]) ?></td>
                             <td><?= e($row["semester"]) ?></td>
-                            <td><span class="status status-<?= e($stCls) ?>"><?= e($stLabel) ?></span></td>
+                            <td class="review-status-cell">
+                                <span class="status status-<?= e($stCls) ?>"><?= e($stLabel) ?></span>
+                                <?php $stepStats = $requestSteps[(int)$row["clearance_id"]] ?? ["total" => 0, "approved" => 0, "rejected" => 0, "pending" => 0, "offices" => []]; ?>
+                                <?php if ((int)$stepStats["total"] > 0): ?>
+                                    <small class="review-status-breakdown" title="<?= e(implode("\n", $stepStats["offices"])) ?>">
+                                        <?= (int)$stepStats["approved"] ?> of <?= (int)$stepStats["total"] ?> offices approved
+                                    </small>
+                                    <?php if ((int)$stepStats["rejected"] > 0): ?>
+                                        <small class="review-status-detail is-rejected"><?= (int)$stepStats["rejected"] ?> office rejected — action needed</small>
+                                    <?php elseif ((int)$stepStats["pending"] > 0): ?>
+                                        <small class="review-status-detail"><?= (int)$stepStats["pending"] ?> still waiting on other offices</small>
+                                    <?php endif; ?>
+                                <?php endif; ?>
+                            </td>
                             <td class="review-requirements-cell">
                                 <?php $rowItems = $requestItems[(int)$row["clearance_id"]] ?? []; ?>
                                 <?php if (!$rowItems): ?>
@@ -707,7 +765,7 @@ require "_header.php";
                                     </details>
                                 <?php endif; ?>
                             </td>
-                            <td><?= e($row["reviewed_at"] ? date("M d, Y", strtotime($row["reviewed_at"])) : "Waiting") ?></td>
+                            <td><?= e($formatReviewedAt($row["reviewed_at"] ?? "")) ?></td>
                             <td>
                                 <form method="post" class="review-action-form">
                                     <input type="hidden" name="action" value="bulk_update">
